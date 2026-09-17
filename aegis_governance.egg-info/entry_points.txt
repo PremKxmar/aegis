@@ -1,3 +1,0 @@
-[console_scripts]
-aegis = aegis.cli:main
-aegis-policylint = aegis.policytool:main

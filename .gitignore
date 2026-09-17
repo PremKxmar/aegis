@@ -5,3 +5,6 @@ data/*.db
 data/*.jsonl
 data/exports/
 .DS_Store
+*.egg-info/
+build/
+dist/
