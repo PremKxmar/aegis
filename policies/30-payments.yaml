@@ -1,0 +1,91 @@
+# Payments agent: the money boundary. Tiered approval by amount.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-payments
+description: Refund authority with graduated human oversight.
+agents: ["*"]
+default_action: deny
+
+rules:
+  # Hard ceiling. No human in this workflow can approve past it; it requires
+  # a policy change, which is version-controlled and reviewable.
+  - name: refund-hard-ceiling
+    description: Refunds above $5000 are structurally impossible.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and tool.args.amount > 5000"
+    action: deny
+    priority: 500
+
+  - name: refund-needs-cfo
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and tool.args.amount > 2000"
+    action: require_approval
+    approvers: ["cfo@aegisbank.test"]
+    priority: 400
+
+  - name: refund-needs-finance-lead
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and tool.args.amount > 500"
+    action: require_approval
+    approvers: ["finance-lead@aegisbank.test", "cfo@aegisbank.test"]
+    priority: 300
+
+  - name: refund-auto-approved
+    description: Small goodwill refunds run unattended.
+    stage: pre_tool
+    condition: "agent.key == 'payments' and tool.name == 'issue_refund'"
+    action: allow
+    priority: 100
+
+  - name: payments-may-lookup
+    stage: pre_tool
+    condition: "agent.key == 'payments' and tool.name == 'lookup_customer'"
+    action: allow
+    priority: 100
+
+  # Only the payments agent may ever call issue_refund, whatever capabilities
+  # some future delegation hands out.
+  - name: refund-restricted-to-payments
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and agent.key != 'payments'"
+    action: deny
+    priority: 600
+
+  # ── cumulative controls ───────────────────────────────────────────
+  # FINDING (ATT-07): the per-call thresholds above are individually correct
+  # and collectively useless. Twelve refunds of $499 each pass every rule and
+  # move $5,988. Per-call limits cannot see structuring; the session total
+  # can. `refund_total_after` includes the pending call, so the gate fires
+  # before the money moves rather than after.
+  - name: session-refund-total-ceiling
+    description: Hard cap on total refunds within one session.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and session.refund_total_after > 2000"
+    action: deny
+    priority: 550
+
+  - name: session-refund-total-approval
+    description: Cumulative spend past $750 needs a human, however it was split.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and session.refund_total_after > 750"
+    action: require_approval
+    approvers: ["finance-lead@aegisbank.test"]
+    priority: 540
+
+  - name: refund-velocity-cap
+    description: More than 4 refunds in one session is anomalous by construction.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and session.refund_count >= 4"
+    action: deny
+    priority: 530
+
+  # Payments must verify the card before refunding it, so this agent - and
+  # only this agent - may read PCI data. Doing so raises the session's DLP
+  # mark to `pci`, which permanently revokes egress for that session. That is
+  # the intended trade: the agent that can see card data is the agent that
+  # can no longer talk to the outside world.
+  - name: payments-may-verify-card
+    stage: pre_tool
+    condition: "agent.key == 'payments' and tool.name == 'read_customer_pii'"
+    action: allow
+    priority: 120

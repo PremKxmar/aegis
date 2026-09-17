@@ -1,0 +1,47 @@
+# Comms agent: the egress boundary. Where data leaves the company.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-comms
+description: Outbound email with information-flow constraints.
+agents: ["*"]
+default_action: deny
+
+rules:
+  # Belt-and-braces with the DLP ratchet: the ratchet is the enforcement,
+  # this rule makes the intent legible in the policy file itself.
+  - name: no-egress-from-tainted-session
+    description: A session that has read PII/PCI may not send external mail.
+    stage: pre_tool
+    condition: "tool.egress and session.mark_level > 2"
+    action: deny
+    priority: 700
+
+  - name: comms-may-email
+    stage: pre_tool
+    condition: "agent.key == 'comms' and tool.name == 'send_email'"
+    action: allow
+    priority: 100
+
+  - name: comms-may-lookup
+    stage: pre_tool
+    condition: "agent.key == 'comms' and tool.name == 'lookup_customer'"
+    action: allow
+    priority: 100
+
+  - name: email-restricted-to-comms
+    stage: pre_tool
+    condition: "tool.name == 'send_email' and agent.key != 'comms'"
+    action: deny
+    priority: 600
+
+  # ── recipient allow-listing ───────────────────────────────────────
+  # FINDING (ATT-09, ATT-13): every rule above governs *whether* mail may be
+  # sent, none governed *to whom*. Both attacks walked straight out to
+  # collector@evil-exfil.test while passing every check. An egress tool needs
+  # a destination allow-list, not just a permission bit.
+  - name: egress-recipient-must-be-authorised
+    description: May only mail principals whose records this session retrieved.
+    stage: pre_tool
+    condition: "tool.recipient_blocked"
+    action: deny
+    priority: 750

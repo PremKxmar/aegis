@@ -1,0 +1,28 @@
+# Triage agent: reads untrusted ticket bodies. Ring 3, read-only by design.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-triage
+description: Capability grant for the ticket triage agent.
+agents: ["*"]
+default_action: deny
+
+rules:
+  - name: triage-may-read-tickets
+    stage: pre_tool
+    condition: "agent.key == 'triage' and tool.name == 'read_ticket'"
+    action: allow
+    priority: 100
+
+  - name: triage-may-lookup-customer
+    description: Basic account lookup only - no PII tool.
+    stage: pre_tool
+    condition: "agent.key == 'triage' and tool.name == 'lookup_customer'"
+    action: allow
+    priority: 100
+
+  - name: analyst-may-close-ticket
+    description: Closure moved off Ring 3 - see workflow.py step 6.
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'close_ticket'"
+    action: allow
+    priority: 90

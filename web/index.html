@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegis Governance Console</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#131822; --panel2:#1a2130; --line:#242c3d;
+    --txt:#e6eaf2; --dim:#8b95ad; --accent:#4c8dff;
+    --ok:#3ecf8e; --bad:#ff5c5c; --warn:#ffb454; --hold:#b48ead;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+         background:var(--panel);position:sticky;top:0;z-index:10}
+  h1{font-size:16px;margin:0;letter-spacing:.3px}
+  h1 span{color:var(--dim);font-weight:400;margin-left:8px;font-size:13px}
+  .grow{flex:1}
+  button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+         padding:7px 13px;border-radius:6px;cursor:pointer;font-size:13px;
+         font-family:inherit;transition:.12s}
+  button:hover{border-color:var(--accent);background:#20293a}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.danger{border-color:#5a2a2a;color:#ff8f8f}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .wrap{padding:16px 20px;display:grid;gap:16px;
+        grid-template-columns:repeat(auto-fit,minmax(430px,1fr));max-width:1820px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card h2{margin:0;padding:11px 14px;font-size:12px;text-transform:uppercase;
+           letter-spacing:.9px;color:var(--dim);border-bottom:1px solid var(--line);
+           display:flex;align-items:center;gap:8px}
+  .card .body{padding:12px 14px;max-height:430px;overflow:auto}
+  .wide{grid-column:1/-1}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;
+     letter-spacing:.5px;position:sticky;top:0;background:var(--panel)}
+  td.mono,.mono{font-family:var(--mono);font-size:11.5px}
+  .pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;
+        font-weight:600;font-family:var(--mono)}
+  .ok{background:rgba(62,207,142,.14);color:var(--ok)}
+  .bad{background:rgba(255,92,92,.14);color:var(--bad)}
+  .warn{background:rgba(255,180,84,.14);color:var(--warn)}
+  .hold{background:rgba(180,142,173,.18);color:var(--hold)}
+  .dim{color:var(--dim)}
+  .score{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+  .stat{flex:1;min-width:130px;background:var(--panel2);border:1px solid var(--line);
+        border-radius:8px;padding:11px 13px}
+  .stat .n{font-size:25px;font-weight:700;font-family:var(--mono);line-height:1.15}
+  .stat .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px}
+  #stream{font-family:var(--mono);font-size:11.5px;max-height:430px;overflow:auto}
+  #stream div{padding:3px 6px;border-bottom:1px solid #1b2231;display:flex;gap:8px}
+  #stream .t{color:var(--dim);flex-shrink:0}
+  .agent{display:flex;align-items:center;gap:9px;padding:7px 0;
+         border-bottom:1px solid var(--line)}
+  .agent:last-child{border-bottom:none}
+  .bar{height:5px;background:var(--panel2);border-radius:3px;flex:1;overflow:hidden;min-width:60px}
+  .bar i{display:block;height:100%;background:var(--ok);transition:.3s}
+  .ring{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:4px;
+        background:var(--panel2);color:var(--dim)}
+  pre{margin:0;font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;
+      word-break:break-word;color:var(--dim)}
+  .ratchet{display:flex;gap:4px;margin:8px 0}
+  .ratchet div{flex:1;text-align:center;padding:5px 2px;border-radius:5px;
+               background:var(--panel2);font-size:10px;font-family:var(--mono);
+               color:var(--dim);border:1px solid transparent}
+  .ratchet div.on{background:rgba(255,92,92,.16);color:var(--bad);border-color:#5a2a2a}
+  .note{font-size:11.5px;color:var(--dim);margin-top:9px;line-height:1.45}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>AEGIS <span>governed multi-agent back-office</span></h1>
+  <span class="pill mono" id="conn">connecting…</span>
+  <div class="grow"></div>
+  <button class="primary" id="btn-attack">Run red-team suite</button>
+  <button id="btn-flow">Run ticket T-501</button>
+  <button id="btn-evil">Run poisoned T-503</button>
+  <button id="btn-mcp">MCP rug pull</button>
+  <button id="btn-bench">Benchmark</button>
+  <button id="btn-tamper">Tamper probe</button>
+  <button class="danger" id="btn-kill">Kill fleet</button>
+  <button id="btn-reset">Reset</button>
+</header>
+
+<div class="wrap">
+  <div class="card wide">
+    <h2>Attack scoreboard — identical attacks, with and without governance</h2>
+    <div class="body">
+      <div class="score">
+        <div class="stat"><div class="n bad" id="s-un">–</div><div class="l">ungoverned: landed</div></div>
+        <div class="stat"><div class="n ok" id="s-gov">–</div><div class="l">governed: landed</div></div>
+        <div class="stat"><div class="n" id="s-neut">–</div><div class="l">neutralised</div></div>
+        <div class="stat"><div class="n" id="s-money">$0</div><div class="l">stolen (governed)</div></div>
+        <div class="stat"><div class="n" id="s-p99">–</div><div class="l">decision p99</div></div>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Attack</th><th>OWASP</th>
+          <th>Ungoverned</th><th>Governed</th><th>Stopped by</th><th>Residual harm</th></tr></thead>
+        <tbody id="atk"><tr><td colspan="7" class="dim">Run the red-team suite to populate.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Live decision stream</h2>
+    <div class="body" id="stream"></div>
+  </div>
+
+  <div class="card">
+    <h2>Agent fleet</h2>
+    <div class="body" id="agents"></div>
+  </div>
+
+  <div class="card">
+    <h2>DLP ratchet — session taint</h2>
+    <div class="body">
+      <div id="ratchets"></div>
+      <div class="note">The mark only ever rises. Once a session reaches
+        <b>pii</b> or <b>pci</b> its egress tools are revoked for the rest of the
+        session — regardless of what the outgoing payload contains.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Pending approvals</h2>
+    <div class="body" id="approvals"><span class="dim">None.</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Policy lint — ours vs <code>agt lint-policy</code></h2>
+    <div class="body"><pre id="lint">Loading…</pre></div>
+  </div>
+
+  <div class="card">
+    <h2>Audit chain</h2>
+    <div class="body"><pre id="audit">–</pre></div>
+  </div>
+
+  <div class="card">
+    <h2>MCP gateway</h2>
+    <div class="body"><pre id="mcp">Click “MCP rug pull”.</pre></div>
+  </div>
+
+  <div class="card">
+    <h2>Overhead benchmark</h2>
+    <div class="body"><pre id="bench">Click “Benchmark”.</pre></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, o) => fetch(p, {method:'POST', headers:{'Content-Type':'application/json'},
+                               ...(o||{})}).then(r=>r.json());
+const esc = s => String(s??'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// ── websocket ─────────────────────────────────────────────────────
+let ws;
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen  = () => { $('#conn').textContent='live'; $('#conn').className='pill ok mono'; };
+  ws.onclose = () => { $('#conn').textContent='offline'; $('#conn').className='pill bad mono';
+                       setTimeout(connect, 1500); };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+}
+function log(text, cls){
+  const el = $('#stream');
+  const d = document.createElement('div');
+  const t = new Date().toLocaleTimeString('en-GB');
+  d.innerHTML = `<span class="t">${t}</span><span class="${cls||''}">${esc(text)}</span>`;
+  el.prepend(d);
+  while(el.children.length > 220) el.lastChild.remove();
+}
+function handle(ev){
+  if(ev.kind==='verdict'){
+    const v = ev.verdict;
+    const cls = v.decision==='allow' ? 'ok' : v.decision==='require_approval' ? 'hold' : 'bad';
+    log(`${v.decision.toUpperCase().padEnd(16)} ${v.agent_id.slice(-6)} ${v.tool} [${v.control}] ${v.reason.slice(0,74)}`, cls);
+  } else if(ev.kind==='ratchet'){
+    log(`RATCHET  ${ev.event.from} → ${ev.event.to} (via ${ev.event.tool})`, 'warn');
+    refresh();
+  } else if(ev.kind==='injection'){
+    log(`INJECTION detected conf=${ev.confidence} ${ev.type}`, 'warn');
+  } else if(ev.kind==='approval_opened'){
+    log(`APPROVAL required: ${ev.request.tool} → ${ev.request.approvers.join(', ')}`, 'hold');
+    refresh();
+  } else if(ev.kind==='attack'){
+    const r = ev.result;
+    log(`${ev.mode==='governed'?'GOV':'UNG'} ${r.id} ${r.succeeded?'LANDED':'blocked'} — ${r.harm}`,
+        r.succeeded ? 'bad' : 'ok');
+  } else if(ev.kind==='killswitch'){
+    log(`KILLSWITCH ${JSON.stringify(ev.state.global)}`, 'bad'); refresh();
+  } else if(ev.kind==='tamper'){
+    log(`TAMPER PROBE before=${ev.probe.before} after=${ev.probe.after_tamper} detected_at=${ev.probe.detected_at}`, 'warn');
+  } else if(ev.kind==='mcp_rugpull'){
+    log(`MCP rug pull: ${ev.threats.length} threat(s)`, 'bad');
+  } else if(ev.kind==='reset'){
+    $('#stream').innerHTML=''; log('state reset','dim');
+  }
+}
+
+// ── rendering ─────────────────────────────────────────────────────
+const LEVELS = ['public','internal','confidential','pii','pci'];
+
+function renderAgents(agents){
+  $('#agents').innerHTML = agents.map(a=>`
+    <div class="agent">
+      <span class="ring">R${a.ring}</span>
+      <b style="min-width:74px">${esc(a.key)}</b>
+      <span class="bar"><i style="width:${(a.trust_score*100).toFixed(0)}%;
+        background:${a.trust_score<0.4?'var(--bad)':a.trust_score<0.6?'var(--warn)':'var(--ok)'}"></i></span>
+      <span class="mono dim">${a.trust_score.toFixed(2)}</span>
+      ${a.quarantined?'<span class="pill bad">quarantined</span>':''}
+      <span class="dim mono" style="font-size:10px">${a.capabilities.length} caps</span>
+    </div>`).join('');
+}
+
+function renderRatchets(sessions){
+  const keys = Object.keys(sessions);
+  if(!keys.length){ $('#ratchets').innerHTML='<span class="dim">No active sessions.</span>'; return; }
+  $('#ratchets').innerHTML = keys.map(k=>{
+    const r = sessions[k].ratchet;
+    return `<div style="margin-bottom:11px">
+      <div class="mono" style="font-size:11px;margin-bottom:3px">${esc(k)}
+        <span class="pill ${r.clean?'ok':'bad'}">${r.clean?'egress ok':'egress revoked'}</span></div>
+      <div class="ratchet">${LEVELS.map((l,i)=>
+        `<div class="${i<=r.mark_level?'on':''}">${l}</div>`).join('')}</div></div>`;
+  }).join('');
+}
+
+function renderApprovals(list){
+  if(!list.length){ $('#approvals').innerHTML='<span class="dim">None.</span>'; return; }
+  $('#approvals').innerHTML = list.map(r=>`
+    <div style="border-bottom:1px solid var(--line);padding:8px 0">
+      <div class="mono" style="font-size:11.5px"><b>${esc(r.tool)}</b>
+        <span class="dim">by ${esc(r.agent)} · ${esc(r.id)}</span></div>
+      <div class="dim" style="font-size:11.5px;margin:3px 0">${esc(r.reason).slice(0,150)}</div>
+      <div class="mono dim" style="font-size:10.5px">args: ${esc(JSON.stringify(r.args))}</div>
+      <div style="margin-top:6px;display:flex;gap:6px">
+        <button onclick="decide('${r.id}',true)">Approve</button>
+        <button class="danger" onclick="decide('${r.id}',false)">Reject</button>
+      </div>
+    </div>`).join('');
+}
+
+window.decide = (id, approve) =>
+  api(`/api/approvals/${id}`, {body: JSON.stringify({approve, who:'finance-lead@aegisbank.test'})})
+    .then(r=>{ log(`approval ${id} → ${r.request.state}`, approve?'ok':'bad'); refresh(); });
+
+function renderAttacks(rows, headline, audit){
+  $('#atk').innerHTML = rows.map(r=>`
+    <tr>
+      <td class="mono">${esc(r.id)}</td>
+      <td>${esc(r.name)}</td>
+      <td class="dim" style="font-size:11px">${esc(r.owasp)}</td>
+      <td><span class="pill ${r.ungoverned?'bad':'dim'}">${r.ungoverned?'LANDED':'safe'}</span></td>
+      <td><span class="pill ${r.governed?'bad':'ok'}">${r.governed?'LANDED':'blocked'}</span></td>
+      <td class="mono" style="font-size:10.5px">${esc((r.blocked_by||[]).join(', '))}</td>
+      <td class="dim mono" style="font-size:10.5px">${esc(r.governed_harm).slice(0,44)}</td>
+    </tr>`).join('');
+  $('#s-un').textContent   = `${headline.ungoverned_success_rate}%`;
+  $('#s-gov').textContent  = `${headline.governed_success_rate}%`;
+  $('#s-neut').textContent = headline.attacks_neutralised;
+  if(audit && audit.latency_ms) $('#s-p99').textContent = audit.latency_ms.p99.toFixed(3)+' ms';
+}
+
+async function refresh(){
+  const s = await fetch('/api/state').then(r=>r.json());
+  renderAgents(s.governor.agents);
+  renderRatchets(s.governor.sessions);
+  renderApprovals(s.governor.approvals.filter(a=>a.state==='pending'));
+  if(s.last_redteam) renderAttacks(s.last_redteam.rows, s.last_redteam.headline,
+                                   s.last_redteam.audit);
+  if(s.last_bench) renderBench(s.last_bench);
+  const a = s.governor.audit;
+  $('#audit').textContent =
+`decisions   : ${a.total}
+chain intact: ${a.chain_intact}
+root hash   : ${(a.root_hash||'–').slice(0,48)}
+by decision : ${JSON.stringify(a.by_decision)}
+by control  : ${JSON.stringify(a.by_control)}
+latency p99 : ${a.latency_ms.p99} ms`;
+  $('#s-money').textContent = '$' + (s.governor.bank.total_refunded||0).toFixed(2);
+}
+
+// ── actions ───────────────────────────────────────────────────────
+function busy(sel, fn){
+  const b = $(sel); const old = b.textContent;
+  b.disabled = true; b.textContent = '…running';
+  return fn().finally(()=>{ b.disabled=false; b.textContent=old; refresh(); });
+}
+
+$('#btn-attack').onclick = () => busy('#btn-attack', async () => {
+  const r = await api('/api/redteam');
+  renderAttacks(r.rows, r.headline, r.audit);
+});
+$('#btn-flow').onclick  = () => busy('#btn-flow',  () => api('/api/workflow/T-501'));
+$('#btn-evil').onclick  = () => busy('#btn-evil',  () => api('/api/workflow/T-503'));
+$('#btn-mcp').onclick   = () => busy('#btn-mcp', async () => {
+  const r = await api('/api/mcp/demo');
+  $('#mcp').textContent =
+`clean registration : ${r.clean_scan.length} threats
+after rug pull     : ${r.rugpull_scan.length} threat(s)
+
+${r.rugpull_scan.join('\n\n')}
+
+quarantined tools  : ${r.snapshot.quarantined}`;
+});
+function renderBench(r){
+  $('#bench').textContent =
+`ungoverned   : ${r.ungoverned.mean_us} µs/call
+governed     : ${r.governed.mean_us} µs/call
+governed p99 : ${r.governed.p99_us} µs/call
+overhead     : ${r.overhead_us_per_call} µs/call  (${r.overhead_pct_inmemory}% on in-memory tools)
+
+decision only: mean ${r.decision_only.mean_us} µs · p99 ${r.decision_only.p99_us} µs
+
+projected against realistic tool latency:
+${Object.entries(r.overhead_pct_projected).map(([k,v])=>`  ${k.replace('_tool','').padEnd(6)} → ${v}%`).join('\n')}`;
+}
+$('#btn-bench').onclick = () => busy('#btn-bench',
+  () => api('/api/bench').then(renderBench));
+$('#btn-tamper').onclick = () => busy('#btn-tamper', () => api('/api/audit/tamper'));
+$('#btn-kill').onclick   = () => busy('#btn-kill',
+  () => api('/api/killswitch', {body: JSON.stringify({action:'kill'})}));
+$('#btn-reset').onclick  = () => busy('#btn-reset', () => api('/api/reset').then(()=>{
+  $('#atk').innerHTML='<tr><td colspan="7" class="dim">Run the red-team suite to populate.</td></tr>';
+  ['s-un','s-gov','s-neut','s-p99'].forEach(i=>$('#'+i).textContent='–');
+}));
+
+fetch('/api/lint').then(r=>r.json()).then(r=>{
+  $('#lint').textContent = r.report + '\n\n(aegis-policylint derives its rule vocabulary from the\n' +
+    'live pydantic model, so it cannot drift from the runtime.)';
+});
+
+connect(); refresh();
+</script>
+</body>
+</html>

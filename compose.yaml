@@ -1,0 +1,51 @@
+# One container per agent, per the toolkit's own hardening guidance.
+#
+# The console container serves the dashboard and runs the governor. The four
+# agent containers demonstrate the deployment topology AGT recommends: each
+# agent isolated at the OS level, policies mounted read-only, no write access
+# to the rulebook that governs it, and capabilities dropped.
+services:
+  console:
+    build: .
+    ports: ["8000:8000"]
+    volumes:
+      - ./policies:/app/policies:ro
+      - ./config:/app/config:ro
+    environment:
+      AEGIS_ROLE: console
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  agent-triage: &agent
+    build: .
+    command: ["python", "-W", "ignore", "-m", "aegis.cli", "demo"]
+    volumes:
+      - ./policies:/app/policies:ro
+      - ./config:/app/config:ro
+    environment:
+      AEGIS_AGENT: triage
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    # Ring 3 reads attacker-controlled text: give it the least of everything.
+    mem_limit: 256m
+    pids_limit: 64
+    network_mode: none
+
+  agent-analyst:
+    <<: *agent
+    environment:
+      AEGIS_AGENT: analyst
+
+  agent-payments:
+    <<: *agent
+    environment:
+      AEGIS_AGENT: payments
+
+  agent-comms:
+    <<: *agent
+    environment:
+      AEGIS_AGENT: comms

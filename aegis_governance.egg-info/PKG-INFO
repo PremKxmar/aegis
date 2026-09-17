@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: aegis-governance
+Version: 1.0.0
+Summary: A governed multi-agent financial back-office built on the Microsoft Agent Governance Toolkit, with an adversarial red-team console.
+Requires-Python: >=3.10
+Requires-Dist: agent-governance-toolkit[full]>=4.1.0
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn[standard]>=0.27
+Requires-Dist: websockets>=12
+Requires-Dist: pyyaml>=6
+Requires-Dist: prometheus-client>=0.20
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"

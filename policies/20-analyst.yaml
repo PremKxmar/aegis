@@ -1,0 +1,30 @@
+# Analyst agent: read-only account investigation. May touch PII, never writes.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-analyst
+description: Read-only investigation grants.
+agents: ["*"]
+default_action: deny
+
+rules:
+  - name: analyst-may-lookup
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'lookup_customer'"
+    action: allow
+    priority: 100
+
+  - name: analyst-may-read-ticket
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'read_ticket'"
+    action: allow
+    priority: 100
+
+  # Deliberately NOT granted read_customer_pii: the analyst identity has no
+  # read:pii capability, so the capability layer denies it before policy runs.
+  # This rule documents the intent for auditors reading the policy alone.
+  - name: analyst-denied-pii
+    description: Explicit denial for audit clarity; capability layer also blocks.
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'read_customer_pii'"
+    action: deny
+    priority: 200

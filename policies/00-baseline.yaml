@@ -1,0 +1,52 @@
+# Baseline: deny everything that no later policy explicitly permits.
+#
+# GOTCHA (cost us an hour): `scope: global` does NOT make a policy apply to
+# every agent. Policy.applies_to() only matches on `agent`, membership in
+# `agents`, or the wildcard below. Omit this and every evaluation returns
+# "No policies loaded (deny by default)" even though list_policies() shows it.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-baseline
+description: Fail-closed baseline for the whole fleet.
+agents: ["*"]
+default_action: deny
+
+rules:
+  # Nothing may run while an injection is live in the session AND the tool
+  # can move money or leave the boundary. Read-only work continues, so a
+  # poisoned ticket degrades capability instead of halting the business.
+  - name: injection-blocks-dangerous-tools
+    description: A flagged injection revokes mutating and egress tools.
+    stage: pre_tool
+    condition: "risk.injection_detected and tool.mutating"
+    action: deny
+    priority: 1000
+
+  - name: injection-blocks-egress
+    stage: pre_tool
+    condition: "risk.injection_detected and tool.egress"
+    action: deny
+    priority: 1000
+
+  # Ring 3 (untrusted-input agents) may never mutate state, whatever else
+  # any policy says. deny_overrides makes this absolute.
+  - name: ring3-is-read-only
+    description: Agents exposed to untrusted input cannot change the world.
+    stage: pre_tool
+    condition: "agent.ring >= 3 and tool.mutating"
+    action: deny
+    priority: 900
+
+  # Behavioural backstop: a low-trust agent loses dangerous tools.
+  - name: low-trust-loses-write
+    stage: pre_tool
+    condition: "agent.trust_score < 0.4 and tool.mutating"
+    action: deny
+    priority: 880
+
+  # PII is readable only by an agent holding read:pii, and never by Ring 3.
+  - name: pii-requires-clearance
+    stage: pre_tool
+    condition: "tool.reads in ['pii', 'pci'] and agent.ring >= 3"
+    action: deny
+    priority: 870

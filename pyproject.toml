@@ -1,0 +1,31 @@
+[project]
+name = "aegis-governance"
+version = "1.0.0"
+description = "A governed multi-agent financial back-office built on the Microsoft Agent Governance Toolkit, with an adversarial red-team console."
+requires-python = ">=3.10"
+dependencies = [
+  "agent-governance-toolkit[full]>=4.1.0",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "websockets>=12",
+  "pyyaml>=6",
+  "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+aegis = "aegis.cli:main"
+aegis-policylint = "aegis.policytool:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aegis*"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
+testpaths = ["tests"]

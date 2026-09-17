@@ -1,0 +1,80 @@
+# Explicit prompt-injection detector config.
+#
+# The toolkit warns (correctly) that its built-in sample rules are not
+# production-grade, so we supply our own tuned set.
+#
+# GOTCHA #2 (cost us 20 minutes): the YAML keys are `direct_override`,
+# `role_play`, etc. -- NOT `direct_override_patterns`. load_prompt_injection_config
+# uses dp.get("direct_override", <defaults>), so a misspelled key silently
+# falls back to the built-in defaults with no warning and no error. You get a
+# config that looks loaded (len() changes nothing you check) but is not.
+# Always assert on a known-custom pattern after loading. See
+# tests/test_detector_config.py, which fails if this regresses.
+#
+# These patterns catch the "polite" injection the defaults miss. They still do
+# not catch everything -- ATT-07 in the red-team suite is a working bypass
+# against *this* tuned ruleset. That is deliberate: detection is a
+# probabilistic advisory layer. The capability, policy and ratchet layers are
+# what actually hold.
+
+detection_patterns:
+  direct_override:
+    - 'ignore\s+(all\s+)?(previous|prior|above)\s+instructions'
+    - 'disregard\s+(your|all|any|the)\b'
+    - 'you\s+are\s+now\b'
+    - 'new\s+role\s*:'
+    - 'forget\s+(everything|all|your)\b'
+    - 'maintenance\s+mode'
+    - 'developer\s+mode'
+    - 'override\s+(your|the)\s+(limits?|rules?|polic)'
+    - 'as\s+(a\s+)?(system\s+)?admin(istrator)?\s*,'
+    - 'this\s+is\s+an?\s+authoris?z?ed\s+(system\s+)?command'
+
+  delimiter:
+    - '<\|?(im_start|im_end|system|endoftext)\|?>'
+    - '\[/?INST\]'
+    - '###\s*(system|instruction)'
+
+  role_play:
+    - 'pretend\s+(you|to\s+be)\b'
+    - 'act\s+as\s+(if|though|a)\b'
+    - 'roleplay\s+as\b'
+
+  context_manipulation:
+    - 'the\s+above\s+instructions\s+are\s+wrong'
+    - 'actually\s+your\s+real\s+instructions\s+are'
+    - 'the\s+developer\s+told\s+me\s+to\s+tell\s+you'
+    - 'do\s+not\s+(mention|report|log|include)\b'
+    - 'without\s+(telling|informing|notifying)\b'
+    - 'keep\s+this\s+(secret|between|confidential)'
+    - 'bypass\s+(the\s+)?(approval|review|check)'
+
+  multi_turn:
+    - 'as\s+we\s+(discussed|agreed)\s+(earlier|before)'
+    - 'continuing\s+from\s+our\s+previous'
+
+  encoding:
+    - '\\x[0-9a-fA-F]{2}'
+    - '%[0-9a-fA-F]{2}%[0-9a-fA-F]{2}'
+
+  base64_pattern: '[A-Za-z0-9+/]{40,}={0,2}'
+
+suspicious_decoded_keywords:
+  - ignore
+  - refund
+  - ssn
+  - exfil
+  - password
+  - instructions
+
+sensitivity_thresholds:
+  strict: 0.3
+  balanced: 0.5
+  permissive: 0.7
+
+sensitivity_min_threat:
+  strict: low
+  balanced: low
+  permissive: high
+
+disclaimer: "Aegis tuned ruleset - advisory layer only, never an enforcement boundary."

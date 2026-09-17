@@ -1,0 +1,26 @@
+# A policy file containing five real defects.
+#   `agt lint-policy tests/fixtures` -> "No issues found."
+#   `aegis-policylint tests/fixtures` -> 5 errors, 2 warnings
+# Run `make lint-compare` to see both.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: trap-demo
+scope: global            # (1) does not scope; policy never evaluated
+default_action: allow    # (2) fail-open
+rules:
+  - name: uses-action-agt-accepts
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund'"
+    action: block        # (3) runtime rejects this; agt's linter allows it
+  - name: uses-not-operator
+    stage: pre_tool
+    condition: "not tool.recipient_allowed"   # (4) silently always False
+    action: deny
+  - name: quoted-boolean
+    stage: pre_tool
+    condition: "tool.egress == 'True'"        # (5) bool never equals str
+    action: deny
+  - name: typo-in-path
+    stage: pre_tool
+    condition: "agent.trustscore < 0.4"       # (6) unknown path -> None
+    action: deny
