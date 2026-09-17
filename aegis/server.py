@@ -185,6 +185,70 @@ def api_redteam_mode(mode: str) -> dict[str, Any]:
     return {"suite": suite.to_dict(), "audit": audit}
 
 
+# ── side-by-side comparison ─────────────────────────────────────────
+# These exist specifically to make a split-screen UI trivial: one request,
+# both worlds, each run on a FRESH governor so neither can contaminate the
+# other. Without this the client has to orchestrate two calls and reason about
+# two independent pieces of server state.
+
+@app.post("/api/compare/workflow/{ticket_id}")
+def api_compare_workflow(ticket_id: str) -> dict[str, Any]:
+    """Run one ticket through both worlds and return both transcripts."""
+    out: dict[str, Any] = {"ticket_id": ticket_id}
+    for mode, enforce in (("ungoverned", False), ("governed", True)):
+        g = Governor(enforce=enforce)
+        res = BackOfficeWorkflow(g).run(ticket_id)
+        sess = g.session(res.session_id)
+        out[mode] = {
+            "steps": [s.to_dict() for s in res.steps],
+            "refunded": res.refunded,
+            "emails_sent": res.emails_sent,
+            "denied_count": res.denied_count,
+            "notes": res.notes,
+            "ratchet": sess.ratchet.to_dict(),
+            "budget": sess.budget.to_dict(),
+            "injection_flags": sess.injection_flags,
+            "audit": g.ledger.stats(),
+            "bank": {
+                "refunds": g.tools.state.refunds,
+                "total_refunded": g.tools.state.total_refunded(),
+                "emails": g.tools.state.sent_email,
+            },
+        }
+    u, gv = out["ungoverned"], out["governed"]
+    out["delta"] = {
+        "money_prevented": round(u["refunded"] - gv["refunded"], 2),
+        "emails_prevented": u["emails_sent"] - gv["emails_sent"],
+        "extra_blocks": gv["denied_count"] - u["denied_count"],
+    }
+    # The ticket text itself, so the UI can show what the agent was reading.
+    probe = Governor(enforce=False)
+    try:
+        out["ticket"] = probe.tools.call("read_ticket", {"ticket_id": ticket_id})
+    except Exception:
+        out["ticket"] = None
+    return out
+
+
+@app.post("/api/compare/attack/{attack_id}")
+def api_compare_attack(attack_id: str) -> dict[str, Any]:
+    """Replay a single attack in both worlds, with per-step transcripts."""
+    from .redteam.attacks import ATTACKS_BY_ID
+    atk = ATTACKS_BY_ID.get(attack_id.upper())
+    if atk is None:
+        raise HTTPException(404, f"unknown attack {attack_id}")
+    out: dict[str, Any] = {
+        "id": atk.id, "name": atk.name, "owasp": atk.owasp,
+        "description": atk.description,
+    }
+    for mode, enforce in (("ungoverned", False), ("governed", True)):
+        g = Governor(enforce=enforce)
+        r = atk.run(g)
+        out[mode] = r.to_dict()
+        out[mode]["audit"] = g.ledger.stats()
+    return out
+
+
 # ── controls ────────────────────────────────────────────────────────
 
 @app.post("/api/killswitch")
