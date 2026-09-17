@@ -121,6 +121,40 @@ def api_state() -> dict[str, Any]:
     }
 
 
+def _bank_snapshot(state: Any) -> dict[str, Any]:
+    """The bank's records as a back-office console would show them.
+
+    PII is masked in this view on purpose: a records screen is not an
+    exfiltration channel. The unmasked SSN only ever reaches the outside world
+    through `send_email`, which is precisely what the ratchet governs -- so the
+    demo's leak is a real leak and not an artefact of a chatty API.
+    """
+    return {
+        "customers": [
+            {
+                "id": c.id, "name": c.name, "email": c.email, "tier": c.tier,
+                "balance_usd": round(c.balance_usd, 2),
+                "ssn_masked": "***-**-" + c.ssn[-4:],
+                "card_masked": "**** **** **** " + c.card_last4,
+            }
+            for c in state.customers.values()
+        ],
+        "tickets": [
+            {"id": tk.id, "customer_id": tk.customer_id, "subject": tk.subject,
+             "status": tk.status, "body": tk.body}
+            for tk in state.tickets.values()
+        ],
+        "refunds": state.refunds,
+        "emails": state.sent_email,
+        "total_refunded": state.total_refunded(),
+    }
+
+
+@app.get("/api/bank")
+def api_bank() -> dict[str, Any]:
+    return _bank_snapshot(gov().tools.state)
+
+
 @app.post("/api/reset")
 def api_reset() -> dict[str, Any]:
     STATE["governed"] = Governor(enforce=True, on_event=hub.publish)
@@ -209,11 +243,7 @@ def api_compare_workflow(ticket_id: str) -> dict[str, Any]:
             "budget": sess.budget.to_dict(),
             "injection_flags": sess.injection_flags,
             "audit": g.ledger.stats(),
-            "bank": {
-                "refunds": g.tools.state.refunds,
-                "total_refunded": g.tools.state.total_refunded(),
-                "emails": g.tools.state.sent_email,
-            },
+            "bank": _bank_snapshot(g.tools.state),
         }
     u, gv = out["ungoverned"], out["governed"]
     out["delta"] = {
