@@ -8,4 +8,3 @@ data/exports/
 *.egg-info/
 build/
 dist/
-aegis-governance-demo/
