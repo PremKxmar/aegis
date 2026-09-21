@@ -1386,6 +1386,72 @@
     details.raw-transcript[open] > summary::before { content: '▾ '; }
     details.raw-transcript > summary:hover { color: var(--text-muted); }
 
+    /* ── Procedure strip: where the case actually got to ──────────────── */
+    .proc-wrap { margin-top: 18px; }
+    .proc-strip { display: flex; flex-wrap: wrap; gap: 4px; align-items: stretch; }
+    .proc-stage {
+      flex: 1 1 0; min-width: 52px; border-radius: 6px; padding: 7px 5px;
+      border: 1px solid var(--border-subtle); background: var(--bg-card);
+      text-align: center; position: relative;
+    }
+    .proc-stage .proc-name {
+      font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-dim); display: block; line-height: 1.25;
+    }
+    .proc-stage .proc-tick { font-size: 12px; display: block; margin-bottom: 2px; }
+    .proc-stage.done { border-color: #2f7d5a; background: rgba(47,125,90,.14); }
+    .proc-stage.done .proc-name { color: #79d3a8; }
+    .proc-stage.blocked { border-color: #a33; background: rgba(170,51,51,.16); }
+    .proc-stage.blocked .proc-name { color: #f0928f; }
+    .proc-stage.pending { opacity: .42; }
+    .proc-summary {
+      margin-top: 9px; font-size: 11.5px; color: var(--text-muted); line-height: 1.5;
+    }
+    .proc-summary .proc-flag { color: #f0928f; font-weight: 600; }
+    .proc-summary .proc-ok { color: #79d3a8; font-weight: 600; }
+
+    /* ── Graph / process panels ───────────────────────────────────────── */
+    .graph-note {
+      color: var(--text-muted); max-width: 760px; font-size: 13px;
+      line-height: 1.6; margin-bottom: 14px;
+    }
+    .graph-btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+    .gen-metrics { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 12px; }
+    .gen-metric-val { font-size: 21px; font-weight: 600; }
+    .gen-metric-lbl {
+      font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--text-dim);
+    }
+    .gap-card {
+      border: 1px solid var(--border-subtle); border-left: 3px solid #c8891f;
+      border-radius: 7px; padding: 11px 13px; margin-bottom: 9px;
+      background: var(--bg-card);
+    }
+    .gap-card.sev-high { border-left-color: #c0392b; }
+    .gap-card.sev-medium { border-left-color: #c8891f; }
+    .gap-card.sev-low { border-left-color: #4a7ea8; }
+    .gap-title { font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
+    .gap-line {
+      font-size: 11.5px; color: var(--text-muted); line-height: 1.55;
+      margin-top: 3px;
+    }
+    .gap-line code {
+      background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
+      font-size: 11px;
+    }
+    .gap-rec { color: #8fb8d8; }
+    .proc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .proc-table th {
+      text-align: left; font-size: 10px; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-dim); padding: 6px 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .proc-table td {
+      padding: 6px 8px; border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+    .proc-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .proc-table .stuck { color: #f0928f; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -1405,6 +1471,8 @@
             <span class="status-dot"></span>
             <span id="governor-status-text">Governor Active · 4 Agents</span>
           </div>
+          <a class="btn-reset" href="/graphs" title="The procedure and knowledge graphs, drawn"
+             style="text-decoration:none;">◆ View the graphs</a>
           <button class="btn-reset" id="btn-global-reset" title="Reset system state">Reset</button>
         </div>
       </div>
@@ -1439,7 +1507,7 @@
         <!-- Scenario 4 -->
         <button class="scenario-btn" id="btn-scenario-4" data-scenario="scoreboard">
           <div class="scenario-title-row">
-            <span class="scenario-title">4. Run all 15 attacks</span>
+            <span class="scenario-title">4. Run all 20 attacks</span>
           </div>
           <span class="scenario-subtitle">"The full scoreboard"</span>
         </button>
@@ -1449,7 +1517,7 @@
       <div class="alert-strip" id="global-alert-strip"></div>
       <div class="progress-strip" id="global-progress-strip">
         <div class="spinner"></div>
-        <span id="progress-strip-text">Simulating red-team attack vectors (15/15)...</span>
+        <span id="progress-strip-text">Simulating red-team attack vectors (20/20)...</span>
       </div>
     </header>
 
@@ -1528,6 +1596,13 @@
           <div class="agent-flow" id="ungoverned-flow"></div>
         </div>
 
+        <!-- Where the case reached in the bank's refund procedure -->
+        <div class="proc-wrap">
+          <div class="flow-label">Case progress</div>
+          <div class="proc-strip" id="ungoverned-procedure"></div>
+          <div class="proc-summary" id="ungoverned-procedure-note"></div>
+        </div>
+
         <!-- Raw step transcript, folded -->
         <details class="raw-transcript">
           <summary>Raw step transcript</summary>
@@ -1562,6 +1637,13 @@
           <div class="agent-flow" id="governed-flow"></div>
         </div>
 
+        <!-- Where the case reached in the bank's refund procedure -->
+        <div class="proc-wrap">
+          <div class="flow-label">Case progress</div>
+          <div class="proc-strip" id="governed-procedure"></div>
+          <div class="proc-summary" id="governed-procedure-note"></div>
+        </div>
+
         <!-- Raw step transcript, folded -->
         <details class="raw-transcript">
           <summary>Raw step transcript</summary>
@@ -1585,7 +1667,7 @@
         </div>
         <div class="stat-tile neutral">
           <div class="stat-tile-val" id="stat-tile-neutralised">--</div>
-          <div class="stat-tile-label">Attacks Neutralised (of 15)</div>
+          <div class="stat-tile-label">Attacks Neutralised (of 20)</div>
         </div>
       </div>
 
@@ -1748,6 +1830,86 @@
         </div>
       </details>
 
+      <!-- Procedure graph: governing the process, not just the actions -->
+      <details class="fold-card" id="details-procedure">
+        <summary>
+          <div class="summary-left">
+            <span class="summary-icon">⛓</span>
+            <span>Procedure Graph — Governing the Process</span>
+          </div>
+          <span class="summary-arrow">▶</span>
+        </summary>
+        <div class="fold-body">
+          <p class="graph-note">
+            Every other control asks <em>"may this agent call this tool?"</em> None of them ask
+            <em>"is this the right point in the process?"</em> The bank's refund procedure is stored as a
+            graph of <code>(procedure, relation, procedure)</code> triples — the structure from
+            <strong>arXiv:2609.09153</strong>, but used as enforcement rather than as guidance. Each edge
+            carries a precondition that must hold before the next stage may start, and five attacks
+            (ATT-16&ndash;ATT-20) exist because all five passed every other control while skipping a step.
+          </p>
+          <div class="proc-strip" id="graph-procedure-strip" style="margin-bottom:14px;"></div>
+          <div id="graph-edges"></div>
+        </div>
+      </details>
+
+      <!-- Knowledge graph + rule generation -->
+      <details class="fold-card" id="details-policygen">
+        <summary>
+          <div class="summary-left">
+            <span class="summary-icon">🕸</span>
+            <span>Knowledge Graph — Rules Nobody Thought to Write</span>
+          </div>
+          <span class="summary-arrow">▶</span>
+        </summary>
+        <div class="fold-body">
+          <p class="graph-note">
+            Policy rules get written from memory, and nothing tells you what you forgot. The domain is
+            stored as a graph of facts — who owns which address, which ticket is about which customer,
+            which tool reads restricted data — so the dangerous paths can be <em>enumerated</em> instead of
+            imagined. Each one is fired at the live governor; anywhere the stack says yes, a rule is
+            proposed. The hold-out button removes the recipient and subject rules this project originally
+            found by hand, and re-derives them from the graph alone.
+          </p>
+          <div class="graph-btn-row">
+            <button class="btn-action" id="btn-policygen">
+              <span>Audit current rules</span>
+            </button>
+            <button class="btn-action" id="btn-policygen-holdout">
+              <span>Hold out known rules &amp; re-derive</span>
+            </button>
+          </div>
+          <div id="policygen-result"></div>
+        </div>
+      </details>
+
+      <!-- Process completion / bottlenecks -->
+      <details class="fold-card" id="details-bottleneck">
+        <summary>
+          <div class="summary-left">
+            <span class="summary-icon">📉</span>
+            <span>Process Completion — Where Does Work Actually Stop?</span>
+          </div>
+          <span class="summary-arrow">▶</span>
+        </summary>
+        <div class="fold-body">
+          <p class="graph-note">
+            Every metric so far measures <em>refusal</em>, which means a governor that blocked everything
+            would score perfectly while the business died. This replays the hash-chained audit log against
+            the procedure graph to ask the opposite question: did the work get done, and if not, which rule
+            is the binding constraint? Two real bugs in this project were found this way — a legitimate
+            non-refund ticket that had no path to closure, and a workflow that was quietly draining an
+            agent's trust score until it got quarantined.
+          </p>
+          <div class="graph-btn-row">
+            <button class="btn-action" id="btn-bottleneck">
+              <span>Replay the audit chain</span>
+            </button>
+          </div>
+          <div id="bottleneck-result"></div>
+        </div>
+      </details>
+
     </section>
 
   </div>
@@ -1867,7 +2029,9 @@
       // calls clearSteps() partway through a scenario, after the pipelines are
       // already on screen. Clearing flows there erases them.
       function clearFlows() {
-        ['ungoverned-flow', 'governed-flow'].forEach(id => {
+        ['ungoverned-flow', 'governed-flow',
+         'ungoverned-procedure', 'governed-procedure',
+         'ungoverned-procedure-note', 'governed-procedure-note'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.innerHTML = '';
         });
@@ -2345,6 +2509,13 @@
         renderAgentFlow('ungoverned-flow', ungov.steps, flowCtx(ungov, true));
         renderAgentFlow('governed-flow', gov.steps, flowCtx(gov, false));
 
+        // How far each case actually got. On a poisoned ticket the ungoverned
+        // side completes the whole procedure and the governed side stops
+        // partway -- which is the correct outcome, and the reason the panel
+        // says "case left open" rather than implying something failed.
+        renderProcedure('ungoverned', ungov.procedure);
+        renderProcedure('governed', gov.procedure);
+
         // The ledger shows the governed outcome -- that is the bank that is
         // actually protected. The ungoverned damage stays in its own column.
         if (gov.bank && gov.bank.customers) {
@@ -2467,7 +2638,7 @@
         });
       }
 
-      // Render Scenario 4 (Run all 15 attacks / Scoreboard)
+      // Render Scenario 4 (Run all 20 attacks / Scoreboard)
       async function runScoreboardScenario() {
         setMiniStatsVisible(false);
         if (isRunningLongTask) return;
@@ -2477,14 +2648,14 @@
         scoreboardView.style.display = 'flex';
         clearFlows();
         renderScenarioNote(
-          'Full red-team suite · 15 attacks',
+          'Full red-team suite · 20 attacks',
           'Every attack is run twice against the same bank: once with enforcement off, '
           + 'once with it on. An attack counts as landing only if it caused observable '
           + 'harm - money moved, mail delivered, PII returned - not merely because a '
           + 'call was denied.');
 
         verdictBanner.className = 'verdict-banner positive';
-        verdictHeading.textContent = '13 of 15 Attacks Neutralised (0% Succeeded Protected)';
+        verdictHeading.textContent = 'Running the full red-team suite…';
         verdictSubtext.textContent = 'Red-team benchmark evaluating prompt injection, token forging, DLP violations, and MCP rug-pulls.';
 
         const tbody = document.getElementById('scoreboard-table-body');
@@ -2495,7 +2666,7 @@
         let seconds = 0;
         const timer = setInterval(() => {
           seconds++;
-          progressText.textContent = `Running 15 attacks across ungoverned and governed agents (${seconds}s elapsed)...`;
+          progressText.textContent = `Running 20 attacks across ungoverned and governed agents (${seconds}s elapsed)...`;
         }, 1000);
 
         const data = await apiFetch('/api/redteam', { method: 'POST' });
@@ -2738,6 +2909,220 @@
         `;
       };
 
+      // ── Procedure graph ───────────────────────────────────────────────
+      // Stage labels are short on purpose: seven of them share one panel
+      // width, and a wrapped label reads worse than an abbreviated one.
+      const PROC_LABEL = {
+        intake: 'Intake', kyc_verify: 'KYC', integrity_check: 'Integrity',
+        eligibility_decision: 'Decision', disbursement: 'Payout',
+        notification: 'Notify', closure: 'Close'
+      };
+      let PROC_STAGES = Object.keys(PROC_LABEL);
+
+      function renderProcedureStrip(elId, completed, stopped) {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const done = new Set(completed || []);
+        el.innerHTML = '';
+        // The first incomplete stage is the one that was refused. Later
+        // stages were never attempted, so marking them blocked too would
+        // claim more than the transcript supports.
+        let markedBlocked = false;
+        PROC_STAGES.forEach(stage => {
+          const div = document.createElement('div');
+          let cls = 'pending', tick = '·';
+          if (done.has(stage)) {
+            cls = 'done'; tick = '✓';
+          } else if (stopped && !markedBlocked) {
+            cls = 'blocked'; tick = '✕';
+            markedBlocked = true;
+          }
+          div.className = `proc-stage ${cls}`;
+          div.innerHTML = `<span class="proc-tick">${tick}</span>`
+            + `<span class="proc-name">${PROC_LABEL[stage] || stage}</span>`;
+          el.appendChild(div);
+        });
+      }
+
+      function renderProcedure(side, proc) {
+        const stripId = `${side}-procedure`;
+        const noteEl = document.getElementById(`${side}-procedure-note`);
+        if (!proc) {
+          renderProcedureStrip(stripId, [], false);
+          if (noteEl) noteEl.textContent = '';
+          return;
+        }
+        const done = proc.completed || [];
+        const complete = !!proc.complete;
+        renderProcedureStrip(stripId, done, !complete);
+        if (!noteEl) return;
+
+        const total = proc.total_stages || PROC_STAGES.length;
+        if (complete) {
+          noteEl.innerHTML = `<span class="proc-ok">Case closed</span> — all ${total} `
+            + `stages completed in order.`;
+        } else {
+          // `completed` arrives sorted alphabetically, so its last element is
+          // not the furthest stage reached -- taking it named KYC on a case
+          // that had actually got as far as Integrity. Walk the graph's own
+          // order instead.
+          const furthest = PROC_STAGES.filter(s => done.includes(s)).pop()
+            || proc.last_stage || '';
+          const last = furthest ? (PROC_LABEL[furthest] || furthest) : 'nothing';
+          const missing = PROC_STAGES.filter(s => !done.includes(s))
+            .map(s => PROC_LABEL[s] || s);
+          noteEl.innerHTML = `<span class="proc-flag">Case left open</span> — reached `
+            + `<strong>${last}</strong> (${done.length}/${total}). `
+            + `Never reached: ${missing.join(', ')}.`;
+        }
+        // Steps that were refused for being out of order, not for what they were.
+        if ((proc.violations || []).length) {
+          const v = proc.violations[0];
+          noteEl.innerHTML += `<br><span class="proc-flag">Out of order:</span> `
+            + `<code>${v.tool}</code> — ${v.reason}`;
+        }
+      }
+
+      // ── Rule generation ───────────────────────────────────────────────
+      async function runPolicygen(holdout) {
+        const ids = ['btn-policygen', 'btn-policygen-holdout'];
+        ids.forEach(i => { const b = document.getElementById(i); if (b) b.disabled = true; });
+        const box = document.getElementById('policygen-result');
+        box.innerHTML = `<div class="graph-note">Walking the graph, probing the live governor…</div>`;
+
+        const res = await apiFetch('/api/policygen', {
+          method: 'POST',
+          body: JSON.stringify({ holdout: holdout || [], validate: false })
+        });
+        ids.forEach(i => { const b = document.getElementById(i); if (b) b.disabled = false; });
+
+        if (!res) { box.innerHTML = `<div class="graph-note">Generator endpoint unreachable.</div>`; return; }
+
+        const gapCount = res.gaps_found || 0;
+        let html = `
+          <div class="gen-metrics">
+            <div><div class="gen-metric-val">${fmtNum(res.probes)}</div>
+                 <div class="gen-metric-lbl">Paths enumerated</div></div>
+            <div><div class="gen-metric-val" style="color:#79d3a8">${fmtNum(res.probes - gapCount)}</div>
+                 <div class="gen-metric-lbl">Already covered</div></div>
+            <div><div class="gen-metric-val" style="color:${gapCount ? '#f0928f' : '#79d3a8'}">${fmtNum(gapCount)}</div>
+                 <div class="gen-metric-lbl">Gaps found</div></div>
+            <div><div class="gen-metric-val">${fmtPct(res.coverage_pct)}</div>
+                 <div class="gen-metric-lbl">Coverage</div></div>
+          </div>`;
+
+        if (holdout && holdout.length) {
+          html += `<div class="graph-note" style="margin-bottom:10px;">Held out of the rule set for this run:
+            ${holdout.map(h => `<code>${h}</code>`).join(', ')}</div>`;
+        }
+
+        (res.gaps || []).forEach(g => {
+          const p = g.proposal || {};
+          html += `
+            <div class="gap-card sev-medium">
+              <div class="gap-title">${g.id} · ${g.description}</div>
+              <div class="gap-line"><strong>Graph says:</strong> ${g.evidence}</div>
+              <div class="gap-line"><strong>Governor says:</strong> ${g.decision} — ${g.reason || ''}</div>
+              <div class="gap-line"><strong>Proposes:</strong> <code>${p.name || ''}</code>
+                &nbsp;<code>${p.condition || ''}</code> → ${p.action || 'deny'}</div>
+            </div>`;
+        });
+
+        if (!gapCount) {
+          html += `<div class="gap-card sev-low"><div class="gap-title">No gaps</div>
+            <div class="gap-line">Every dangerous path the graph can enumerate is already
+            refused by the current rule set.</div></div>`;
+        }
+        box.innerHTML = html;
+      }
+
+      document.getElementById('btn-policygen').onclick = () => runPolicygen([]);
+      document.getElementById('btn-policygen-holdout').onclick = () => runPolicygen([
+        'egress-recipient-must-be-authorised',
+        'egress-recipient-must-be-related',
+        'refund-subject-must-match-ticket'
+      ]);
+
+      // ── Process completion ────────────────────────────────────────────
+      document.getElementById('btn-bottleneck').onclick = async () => {
+        const btn = document.getElementById('btn-bottleneck');
+        btn.disabled = true;
+        const box = document.getElementById('bottleneck-result');
+        box.innerHTML = `<div class="graph-note">Running every ticket, then replaying the ledger…</div>`;
+
+        const res = await apiFetch('/api/bottleneck', { method: 'POST' });
+        btn.disabled = false;
+        if (!res) { box.innerHTML = `<div class="graph-note">Endpoint unreachable.</div>`; return; }
+
+        const rate = res.completion_rate;
+        const rateColor = rate >= 80 ? '#79d3a8' : rate >= 50 ? '#d8b04a' : '#f0928f';
+        let html = `
+          <div class="gen-metrics">
+            <div><div class="gen-metric-val">${fmtNum(res.sessions)}</div>
+                 <div class="gen-metric-lbl">Cases run</div></div>
+            <div><div class="gen-metric-val" style="color:${rateColor}">${fmtNum(res.completed)}</div>
+                 <div class="gen-metric-lbl">Completed end-to-end</div></div>
+            <div><div class="gen-metric-val" style="color:${rateColor}">${fmtPct(rate)}</div>
+                 <div class="gen-metric-lbl">Completion rate</div></div>
+          </div>
+          <table class="proc-table">
+            <thead><tr><th>Stage</th><th style="text-align:right">Done</th>
+              <th style="text-align:right">Blocked</th><th style="text-align:right">Stuck</th>
+              <th>Binding constraint</th></tr></thead><tbody>`;
+
+        (res.stages || []).forEach(s => {
+          const constraint = Object.keys(s.by_rule || {})[0]
+            || Object.keys(s.by_control || {})[0] || '';
+          html += `<tr>
+            <td>${s.title}</td>
+            <td class="num">${s.completed}</td>
+            <td class="num">${s.blocked}</td>
+            <td class="num ${s.terminal ? 'stuck' : ''}">${s.terminal}</td>
+            <td><code>${constraint}</code></td></tr>`;
+        });
+        html += `</tbody></table>`;
+
+        if ((res.findings || []).length) {
+          html += `<div style="margin-top:16px;"></div>`;
+          res.findings.forEach(f => {
+            html += `
+              <div class="gap-card sev-${f.severity}">
+                <div class="gap-title">${f.severity.toUpperCase()} · ${f.title}</div>
+                <div class="gap-line">${f.statement}</div>
+                <div class="gap-line gap-rec">→ ${f.recommendation}</div>
+              </div>`;
+          });
+        } else {
+          html += `<div class="gap-card sev-low" style="margin-top:16px;">
+            <div class="gap-title">No bottlenecks</div>
+            <div class="gap-line">Every case reached a terminal stage.</div></div>`;
+        }
+        box.innerHTML = html;
+      };
+
+      // Draw the procedure graph itself into its own panel, from the backend
+      // so the diagram can never drift from the graph being enforced.
+      async function loadGraphPanel() {
+        const res = await apiFetch('/api/graph');
+        if (!res || !res.procedure) return;
+        const nodes = res.procedure.nodes || [];
+        if (nodes.length) PROC_STAGES = nodes.map(n => n.key);
+        nodes.forEach(n => { if (!PROC_LABEL[n.key]) PROC_LABEL[n.key] = n.key; });
+        renderProcedureStrip('graph-procedure-strip', PROC_STAGES, false);
+
+        const edges = res.procedure.edges || [];
+        const el = document.getElementById('graph-edges');
+        if (!el) return;
+        el.innerHTML = edges.map(e => `
+          <div class="gap-card sev-low">
+            <div class="gap-title">${PROC_LABEL[e.src] || e.src}
+              <span style="color:var(--text-dim);font-weight:400"> —${e.relation}→ </span>
+              ${PROC_LABEL[e.dst] || e.dst}</div>
+            <div class="gap-line"><strong>Requires:</strong> ${e.condition}</div>
+            <div class="gap-line"><strong>Pitfall:</strong> ${e.pitfalls}</div>
+          </div>`).join('');
+      }
+
       // Websocket Connection
       function setupWebSocket() {
         try {
@@ -2767,6 +3152,10 @@
         
         // Initial state
         await loadBank(true);
+        // Fetch the procedure graph before any scenario renders, so the stage
+        // strip is drawn from the graph the backend is actually enforcing
+        // rather than from a list hardcoded in this file.
+        await loadGraphPanel();
         const state = await apiFetch('/api/state');
         if (state && state.governor) {
           populateFleet(state.governor.agents);

@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aegis — The Two Graphs</title>
+<style>
+  :root {
+    --bg-canvas: #0c0c0d;
+    --bg-card: #141416;
+    --bg-card-hover: #1b1b1e;
+    --border-subtle: #242427;
+    --border-strong: #35353a;
+    --text-main: #e9e9ea;
+    --text-muted: #96969c;
+    --text-dim: #66666d;
+    --red-text: #c4796f;
+    --red-border: #4a2e2c;
+    --green-text: #86a88f;
+    --green-border: #2c3a30;
+    --amber-text: #a8916a;
+    --amber-border: #45454d;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-canvas); color: var(--text-main);
+    font-family: var(--font-sans); font-size: 15px; line-height: 1.6;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 22px 90px; }
+
+  header.top {
+    border-bottom: 1px solid var(--border-subtle); padding: 18px 0 16px;
+    margin-bottom: 30px; position: sticky; top: 0; background: var(--bg-canvas);
+    z-index: 20;
+  }
+  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .brand span { color: var(--text-dim); font-weight: 400; }
+  .back-link {
+    color: var(--text-muted); text-decoration: none; font-size: 13px;
+    border: 1px solid var(--border-subtle); padding: 7px 14px; border-radius: 7px;
+  }
+  .back-link:hover { background: var(--bg-card-hover); color: var(--text-main); }
+
+  h2 { font-size: 22px; margin: 0 0 6px; letter-spacing: -.02em; }
+  .lede { color: var(--text-muted); max-width: 720px; margin: 0 0 22px; }
+  .lede strong { color: var(--text-main); }
+  section.block { margin-bottom: 64px; }
+
+  .plain {
+    border-left: 2px solid var(--border-strong); padding: 2px 0 2px 16px;
+    color: var(--text-muted); margin: 0 0 24px; max-width: 760px;
+  }
+  .plain b { color: var(--text-main); font-weight: 600; }
+
+  /* ── controls ─────────────────────────────────────────────────── */
+  .controls { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+  button.pill {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    color: var(--text-muted); border-radius: 7px; padding: 8px 14px;
+    font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  button.pill:hover { background: var(--bg-card-hover); color: var(--text-main); }
+  button.pill.on { border-color: var(--border-strong); color: var(--text-main); background: var(--bg-card-hover); }
+  button.pill:disabled { opacity: .45; cursor: default; }
+  .ctl-label { font-size: 12px; color: var(--text-dim); margin-right: 3px; }
+
+  /* ── layout: canvas + inspector ───────────────────────────────── */
+  .split { display: grid; grid-template-columns: 1fr 330px; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  .canvas-box {
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    background: var(--bg-card); padding: 10px; overflow: hidden;
+  }
+  .canvas-box svg { display: block; width: 100%; height: auto; }
+  .inspector {
+    border: 1px solid var(--border-subtle); border-radius: 10px;
+    background: var(--bg-card); padding: 16px 17px; min-height: 180px;
+    position: sticky; top: 92px;
+  }
+  .insp-hint { color: var(--text-dim); font-size: 13px; }
+  .insp-title { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+  .insp-sub {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-dim); margin-bottom: 12px;
+  }
+  .insp-row { margin-bottom: 12px; }
+  .insp-k {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-dim); display: block; margin-bottom: 2px;
+  }
+  .insp-v { font-size: 13px; color: var(--text-muted); }
+  .insp-v code {
+    font-family: var(--font-mono); font-size: 12px;
+    background: rgba(255,255,255,.05); padding: 1px 5px; border-radius: 3px;
+  }
+  .insp-v.warn { color: var(--red-text); }
+
+  /* ── SVG node styling ─────────────────────────────────────────── */
+  .pnode rect {
+    fill: var(--bg-card); stroke: var(--border-strong); stroke-width: 1.2;
+    transition: fill .2s, stroke .2s;
+  }
+  .pnode { cursor: pointer; }
+  .pnode:hover rect { fill: var(--bg-card-hover); }
+  .pnode.sel rect { stroke: #8fb8d8; stroke-width: 2; }
+  .pnode.done rect { stroke: var(--green-border); fill: rgba(47,125,90,.14); }
+  .pnode.stopped rect { stroke: var(--red-border); fill: rgba(170,51,51,.16); }
+  .pnode .n-title { fill: var(--text-main); font-size: 12.5px; font-weight: 600; }
+  .pnode .n-sub { fill: var(--text-dim); font-size: 10px; font-family: var(--font-mono); }
+  .pnode.done .n-title { fill: #9fdcbd; }
+  .pnode.stopped .n-title { fill: #f0928f; }
+  .edge { stroke: var(--border-strong); stroke-width: 1.4; fill: none; }
+  .edge.converge { stroke-dasharray: 4 3; stroke: var(--amber-border); }
+  .edge-lbl { fill: var(--text-dim); font-size: 8.5px; font-family: var(--font-mono); letter-spacing: .03em; }
+
+  .knode circle { stroke-width: 1.2; cursor: pointer; }
+  .knode text { font-size: 9px; fill: var(--text-muted); pointer-events: none; }
+  .knode.dim { opacity: .18; }
+  .klink { stroke: var(--border-subtle); stroke-width: .9; }
+  .klink.hot { stroke: #8fb8d8; stroke-width: 2; }
+  .klink.dim { opacity: .1; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 11.5px; }
+  .legend span { display: flex; align-items: center; gap: 5px; color: var(--text-muted); }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  .result-line {
+    margin-top: 14px; font-size: 13.5px; color: var(--text-muted);
+    border: 1px solid var(--border-subtle); border-radius: 8px; padding: 11px 14px;
+    background: var(--bg-card);
+  }
+  .result-line .bad { color: var(--red-text); font-weight: 600; }
+  .result-line .good { color: var(--green-text); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand">◆ The Two Graphs <span>— how Aegis governs the process, not just the actions</span></div>
+    <a class="back-link" href="/">← Back to console</a>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ─────────────────────────── procedure ─────────────────────── -->
+  <section class="block">
+    <h2>1. The procedure graph — what order things must happen in</h2>
+    <p class="lede">
+      This is the bank's refund procedure, drawn as a graph. Boxes are steps. Arrows are the
+      only moves that are allowed. <strong>Click any box</strong> to see what has to be true
+      before that step may run.
+    </p>
+    <div class="plain">
+      <b>In one sentence:</b> every other control in Aegis asks "may this agent use this tool?"
+      — this graph asks "is this the right moment?". A refund with no decision behind it is a
+      perfectly valid tool call at completely the wrong time, and only this catches it.
+    </div>
+
+    <div class="controls">
+      <span class="ctl-label">Run a real ticket through it:</span>
+      <button class="pill" data-ticket="T-501">T-501 — genuine refund</button>
+      <button class="pill" data-ticket="T-502">T-502 — no refund claimed</button>
+      <button class="pill" data-ticket="T-503">T-503 — poisoned ticket</button>
+      <button class="pill" id="btn-clear">Clear</button>
+    </div>
+
+    <div class="split">
+      <div class="canvas-box">
+        <svg id="proc-svg" viewBox="0 0 860 470" role="img" aria-label="Procedure graph"></svg>
+      </div>
+      <aside class="inspector" id="proc-inspector">
+        <div class="insp-hint">Click a step to inspect it, or run a ticket above to watch a
+        real case move through the graph.</div>
+      </aside>
+    </div>
+    <div class="result-line" id="proc-result" style="display:none"></div>
+  </section>
+
+  <!-- ─────────────────────────── knowledge ─────────────────────── -->
+  <section class="block">
+    <h2>2. The knowledge graph — who is related to whom</h2>
+    <p class="lede">
+      Every fact the bank knows, as dots and lines. Customers, their email addresses, their
+      tickets, the tools, the agents. <strong>Click any dot</strong> to see what it connects to.
+    </p>
+    <div class="plain">
+      <b>Why it exists:</b> a rule can check an amount or a capability on its own. It cannot
+      check a <i>relationship</i> — "is this email address actually this customer's?" Two real
+      bugs in this project were exactly that question going unasked.
+    </div>
+
+    <div class="controls">
+      <span class="ctl-label">Show:</span>
+      <button class="pill on" data-filter="all">Everything</button>
+      <button class="pill" data-filter="customer">Customers &amp; data</button>
+      <button class="pill" data-filter="tool">Tools</button>
+      <button class="pill" data-filter="stage">Procedure steps</button>
+      <button class="pill" id="btn-att18">Show me ATT-18</button>
+    </div>
+
+    <div class="split">
+      <div class="canvas-box">
+        <svg id="kg-svg" viewBox="0 0 860 560" role="img" aria-label="Knowledge graph"></svg>
+        <div class="legend" id="kg-legend"></div>
+      </div>
+      <aside class="inspector" id="kg-inspector">
+        <div class="insp-hint">Click a dot to see its connections.</div>
+      </aside>
+    </div>
+    <div class="result-line" id="kg-result" style="display:none"></div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const k in (attrs || {})) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g,
+      c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+  async function api(path, opts) {
+    try {
+      const r = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    } catch (e) { console.warn("fetch failed", path, e); return null; }
+  }
+
+  // ═══════════════════ 1. PROCEDURE GRAPH ═══════════════════
+
+  // Hand-placed rather than auto-laid-out: seven nodes whose shape carries
+  // meaning (the declined branch rejoining the main line is the whole point of
+  // the diagram), and a generic layout engine hides exactly that.
+  const POS = {
+    intake:               { x: 60,  y: 40  },
+    kyc_verify:           { x: 60,  y: 140 },
+    integrity_check:      { x: 60,  y: 240 },
+    eligibility_decision: { x: 60,  y: 340 },
+    disbursement:         { x: 470, y: 250 },
+    notification:         { x: 470, y: 350 },
+    closure:              { x: 470, y: 60  }
+  };
+  const NW = 300, NH = 62;
+  const PLAIN = {
+    intake: "Read the customer's ticket. Everything in it is treated as untrusted from here on.",
+    kyc_verify: "Confirm the person on the ticket is a real account holder.",
+    integrity_check: "Check the ticket and the account record actually agree.",
+    eligibility_decision: "Write down, on the record, whether money is owed and how much.",
+    disbursement: "Pay. This cannot be undone.",
+    notification: "Tell the customer what happened.",
+    closure: "Mark the case resolved."
+  };
+
+  let procGraph = null, procSel = null, procRun = null;
+
+  function drawProcedure() {
+    const svg = $("proc-svg");
+    svg.innerHTML = "";
+    if (!procGraph) return;
+
+    const defs = el("defs", {}, svg);
+    [["arw", "#35353a"], ["arw-a", "#45454d"]].forEach(([id, col]) => {
+      const m = el("marker", {
+        id, viewBox: "0 0 10 10", refX: "9", refY: "5",
+        markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse"
+      }, defs);
+      el("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: col }, m);
+    });
+
+    const done = new Set((procRun && procRun.completed) || []);
+    const order = procGraph.nodes.map(n => n.key);
+    // The first stage not reached is where the case stopped; later ones were
+    // never attempted, so marking them too would overstate the transcript.
+    let stopKey = null;
+    if (procRun && !procRun.complete) stopKey = order.find(k => !done.has(k)) || null;
+
+    // edges first, so nodes paint over the line ends
+    const gE = el("g", {}, svg);
+    procGraph.edges.forEach(e => {
+      const a = POS[e.src], b = POS[e.dst];
+      if (!a || !b) return;
+      const conv = e.relation === "CONVERGES_TO";
+      let d;
+      if (a.x === b.x) {
+        d = `M ${a.x + NW / 2} ${a.y + NH} L ${b.x + NW / 2} ${b.y}`;
+      } else if (b.x > a.x) {
+        const sx = a.x + NW, sy = a.y + NH / 2, ex = b.x, ey = b.y + NH / 2;
+        d = `M ${sx} ${sy} C ${sx + 80} ${sy}, ${ex - 80} ${ey}, ${ex} ${ey}`;
+      } else {
+        const sx = a.x, sy = a.y + NH / 2, ex = b.x + NW, ey = b.y + NH / 2;
+        d = `M ${sx} ${sy} C ${sx - 60} ${sy}, ${ex + 60} ${ey}, ${ex} ${ey}`;
+      }
+      el("path", {
+        d, class: "edge" + (conv ? " converge" : ""),
+        "marker-end": `url(#${conv ? "arw-a" : "arw"})`
+      }, gE);
+
+      const m = midOf(d);
+      el("text", { x: m.x, y: m.y - 5, class: "edge-lbl", "text-anchor": "middle" }, gE)
+        .textContent = e.relation;
+    });
+
+    procGraph.nodes.forEach((n, i) => {
+      const p = POS[n.key]; if (!p) return;
+      let cls = "pnode";
+      if (done.has(n.key)) cls += " done";
+      if (n.key === stopKey) cls += " stopped";
+      if (n.key === procSel) cls += " sel";
+      const g = el("g", { class: cls }, svg);
+      el("rect", { x: p.x, y: p.y, width: NW, height: NH, rx: 9 }, g);
+
+      let mark = String(i + 1) + ".";
+      if (done.has(n.key)) mark = "✓";
+      else if (n.key === stopKey) mark = "✕";
+      el("text", { x: p.x + 16, y: p.y + 26, class: "n-title" }, g)
+        .textContent = `${mark}  ${n.title}`;
+      el("text", { x: p.x + 16, y: p.y + 45, class: "n-sub" }, g)
+        .textContent = `${n.owner} · ${n.completed_by}`;
+      g.addEventListener("click", () => { procSel = n.key; drawProcedure(); inspectStage(n); });
+    });
+  }
+
+  // Sample the rendered path instead of guessing a midpoint: the curved edges
+  // are cubic, so the average of the endpoints sits well off the line.
+  function midOf(d) {
+    const p = el("path", { d }, $("proc-svg"));
+    let pt;
+    try { pt = p.getPointAtLength(p.getTotalLength() / 2); }
+    catch (e) { pt = { x: 0, y: 0 }; }
+    p.remove();
+    return pt;
+  }
+
+  function inspectStage(node) {
+    const inbound = procGraph.edges.filter(e => e.dst === node.key);
+    const done = new Set((procRun && procRun.completed) || []);
+    let html = `<div class="insp-title">${esc(node.title)}</div>
+      <div class="insp-sub">${esc(node.owner)} agent · <code>${esc(node.completed_by)}</code></div>
+      <div class="insp-row"><span class="insp-k">What it is</span>
+        <div class="insp-v">${esc(PLAIN[node.key] || node.description)}</div></div>`;
+
+    if (!inbound.length) {
+      html += `<div class="insp-row"><span class="insp-k">Runs when</span>
+        <div class="insp-v">This is the first step — nothing has to happen before it.</div></div>`;
+    } else {
+      html += `<div class="insp-row"><span class="insp-k">Allowed only after</span><div class="insp-v">`;
+      html += inbound.map(e =>
+        `• <strong>${esc(labelOf(e.src))}</strong> — ${esc(e.condition)}`).join("<br>");
+      if (inbound.length > 1) {
+        html += `<br><em style="color:var(--text-dim)">Either route is enough — that is what
+          the dashed arrow means.</em>`;
+      }
+      html += `</div></div>`;
+      html += `<div class="insp-row"><span class="insp-k">If you skip it</span>
+        <div class="insp-v warn">${esc(inbound[0].pitfalls)}</div></div>`;
+    }
+    if (procRun) {
+      html += `<div class="insp-row"><span class="insp-k">This run</span><div class="insp-v">`
+        + (done.has(node.key)
+            ? `<span style="color:var(--green-text)">Completed.</span>`
+            : `<span style="color:var(--red-text)">Not reached.</span>`)
+        + `</div></div>`;
+    }
+    $("proc-inspector").innerHTML = html;
+  }
+
+  function labelOf(key) {
+    const n = procGraph && procGraph.nodes.find(x => x.key === key);
+    return n ? n.title : key;
+  }
+
+  async function runTicket(ticket, btn) {
+    document.querySelectorAll("[data-ticket]").forEach(b => b.classList.toggle("on", b === btn));
+    document.querySelectorAll("[data-ticket]").forEach(b => b.disabled = true);
+    $("proc-result").style.display = "block";
+    $("proc-result").textContent = "Running " + ticket + " through the governed workflow…";
+
+    const data = await api("/api/compare/workflow/" + ticket, { method: "POST" });
+    document.querySelectorAll("[data-ticket]").forEach(b => b.disabled = false);
+    if (!data || !data.governed) { $("proc-result").textContent = "Backend unreachable."; return; }
+
+    // Animate: reveal completed stages one at a time, in graph order rather
+    // than in the order the API happens to serialise them.
+    const target = data.governed.procedure || { completed: [], complete: false };
+    const seq = procGraph.nodes.map(n => n.key).filter(k => (target.completed || []).includes(k));
+    procRun = { completed: [], complete: false };
+    drawProcedure();
+    seq.forEach((k, i) => setTimeout(() => {
+      procRun.completed.push(k);
+      if (i === seq.length - 1) procRun.complete = !!target.complete;
+      drawProcedure();
+      if (procSel) inspectStage(procGraph.nodes.find(n => n.key === procSel));
+    }, 260 * (i + 1)));
+
+    setTimeout(() => {
+      procRun = target;
+      drawProcedure();
+      const u = data.ungoverned.procedure || {};
+      const done = (target.completed || []).length;
+      const tot = target.total_stages || procGraph.nodes.length;
+      $("proc-result").innerHTML = target.complete
+        ? `<span class="good">Case completed</span> — all ${tot} steps ran in order, `
+          + `$${(data.governed.refunded || 0).toFixed(2)} refunded to the customer the ticket is about.`
+        : `<span class="bad">Case stopped at step ${done + 1} of ${tot}.</span> `
+          + `Governance refused the next move. Without governance this same ticket `
+          + `completed <strong>${((u.completed || []).length)}/${tot}</strong> steps and moved `
+          + `<strong>$${(data.ungoverned.refunded || 0).toFixed(2)}</strong>.`;
+    }, 260 * (seq.length + 1));
+  }
+
+  document.querySelectorAll("[data-ticket]").forEach(b =>
+    b.addEventListener("click", () => runTicket(b.dataset.ticket, b)));
+  $("btn-clear").addEventListener("click", () => {
+    procRun = null; procSel = null;
+    document.querySelectorAll("[data-ticket]").forEach(b => b.classList.remove("on"));
+    $("proc-result").style.display = "none";
+    $("proc-inspector").innerHTML = `<div class="insp-hint">Click a step to inspect it, or run
+      a ticket above to watch a real case move through the graph.</div>`;
+    drawProcedure();
+  });
+
+  // ═══════════════════ 2. KNOWLEDGE GRAPH ═══════════════════
+
+  const TYPE_COLOR = {
+    customer: "#7fa8d0", email: "#c9a45e", ticket: "#9b8fd0",
+    tool: "#79ad92", agent: "#c4796f", stage: "#8a8a92",
+    data: "#b0758f", class: "#6e8fa0", other: "#5a5a60"
+  };
+  const TYPE_LABEL = {
+    customer: "Customer", email: "Email address", ticket: "Ticket", tool: "Tool",
+    agent: "Agent", stage: "Procedure step", data: "Sensitive data", class: "Data class"
+  };
+  // Predicates that only add noise at this scale.
+  const SKIP_PRED = new Set(["LEVEL", "STATUS", "TIER"]);
+
+  let kgNodes = [], kgLinks = [], kgSel = null, kgFilter = "all";
+
+  function typeOf(id) {
+    const t = String(id).split(":")[0];
+    return TYPE_COLOR[t] ? t : "other";
+  }
+  function shortOf(id) {
+    const parts = String(id).split(":");
+    return parts.length > 1 ? parts.slice(1).join(":") : id;
+  }
+
+  function buildKG(triples) {
+    const index = new Map();
+    const add = id => {
+      if (!index.has(id)) {
+        index.set(id, {
+          id, type: typeOf(id), label: shortOf(id),
+          x: 430 + (Math.random() - .5) * 320,
+          y: 280 + (Math.random() - .5) * 320,
+          vx: 0, vy: 0, deg: 0
+        });
+      }
+      return index.get(id);
+    };
+    kgLinks = [];
+    triples.forEach(t => {
+      if (SKIP_PRED.has(t.p)) return;
+      const a = add(t.s), b = add(t.o);
+      a.deg++; b.deg++;
+      kgLinks.push({ s: a, o: b, p: t.p });
+    });
+    kgNodes = [...index.values()];
+    layoutKG();
+  }
+
+  // Small deterministic-enough force layout. A library would be one more CDN
+  // dependency for 58 nodes; this is ~25 lines and cannot fail to load.
+  function layoutKG() {
+    const W = 860, H = 560, CX = W / 2, CY = H / 2;
+    for (let step = 0; step < 320; step++) {
+      const k = 1 - step / 320;
+      for (let i = 0; i < kgNodes.length; i++) {
+        const a = kgNodes[i];
+        a.vx += (CX - a.x) * 0.0016;
+        a.vy += (CY - a.y) * 0.0016;
+        for (let j = i + 1; j < kgNodes.length; j++) {
+          const b = kgNodes[j];
+          let dx = a.x - b.x, dy = a.y - b.y;
+          let d2 = dx * dx + dy * dy;
+          if (d2 < 1) { d2 = 1; dx = Math.random() - .5; dy = Math.random() - .5; }
+          if (d2 > 42000) continue;
+          const f = 900 / d2;
+          const d = Math.sqrt(d2);
+          a.vx += (dx / d) * f; a.vy += (dy / d) * f;
+          b.vx -= (dx / d) * f; b.vy -= (dy / d) * f;
+        }
+      }
+      kgLinks.forEach(l => {
+        const dx = l.o.x - l.s.x, dy = l.o.y - l.s.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - 74) * 0.06;
+        const ux = (dx / d) * f, uy = (dy / d) * f;
+        l.s.vx += ux; l.s.vy += uy;
+        l.o.vx -= ux; l.o.vy -= uy;
+      });
+      kgNodes.forEach(n => {
+        n.x += n.vx * k; n.y += n.vy * k;
+        n.vx *= 0.82; n.vy *= 0.82;
+        n.x = Math.max(28, Math.min(W - 28, n.x));
+        n.y = Math.max(22, Math.min(H - 22, n.y));
+      });
+    }
+  }
+
+  function drawKG(highlight) {
+    const svg = $("kg-svg");
+    svg.innerHTML = "";
+    const hot = highlight || null;
+    const visible = n => kgFilter === "all" || n.type === kgFilter
+      || (kgFilter === "customer" && (n.type === "email" || n.type === "data" || n.type === "ticket"))
+      || (kgFilter === "stage" && n.type === "agent");
+
+    const gL = el("g", {}, svg);
+    kgLinks.forEach(l => {
+      const on = hot && hot.links.has(l);
+      const show = visible(l.s) && visible(l.o);
+      el("line", {
+        x1: l.s.x, y1: l.s.y, x2: l.o.x, y2: l.o.y,
+        class: "klink" + (on ? " hot" : (hot || !show ? " dim" : ""))
+      }, gL);
+    });
+
+    const gN = el("g", {}, svg);
+    kgNodes.forEach(n => {
+      const on = hot && hot.nodes.has(n);
+      const show = visible(n);
+      const g = el("g", {
+        class: "knode" + (on ? "" : (hot || !show ? " dim" : ""))
+      }, gN);
+      const r = Math.min(4 + n.deg * 0.7, 10);
+      el("circle", {
+        cx: n.x, cy: n.y, r,
+        fill: TYPE_COLOR[n.type], stroke: "#0c0c0d",
+        opacity: kgSel === n.id ? 1 : .88
+      }, g);
+      if (n.deg > 1 || on) {
+        el("text", { x: n.x + r + 4, y: n.y + 3 }, g).textContent = n.label.slice(0, 22);
+      }
+      g.addEventListener("click", () => { kgSel = n.id; inspectNode(n); });
+    });
+  }
+
+  function neighbourhood(node) {
+    const nodes = new Set([node]), links = new Set();
+    kgLinks.forEach(l => {
+      if (l.s === node || l.o === node) {
+        links.add(l); nodes.add(l.s); nodes.add(l.o);
+      }
+    });
+    return { nodes, links };
+  }
+
+  function inspectNode(n) {
+    const nb = neighbourhood(n);
+    drawKG(nb);
+    const out = kgLinks.filter(l => l.s === n);
+    const inn = kgLinks.filter(l => l.o === n);
+    let html = `<div class="insp-title">${esc(n.label)}</div>
+      <div class="insp-sub">${esc(TYPE_LABEL[n.type] || n.type)}</div>`;
+    if (out.length) {
+      html += `<div class="insp-row"><span class="insp-k">Connects to</span><div class="insp-v">`
+        + out.map(l => `<code>${esc(l.p)}</code> ${esc(l.o.label)}`).join("<br>") + `</div></div>`;
+    }
+    if (inn.length) {
+      html += `<div class="insp-row"><span class="insp-k">Referenced by</span><div class="insp-v">`
+        + inn.slice(0, 8).map(l => `${esc(l.s.label)} <code>${esc(l.p)}</code>`).join("<br>")
+        + (inn.length > 8 ? `<br><em style="color:var(--text-dim)">+${inn.length - 8} more</em>` : "")
+        + `</div></div>`;
+    }
+    $("kg-inspector").innerHTML = html;
+  }
+
+  function drawLegend() {
+    $("kg-legend").innerHTML = Object.keys(TYPE_LABEL).map(t =>
+      `<span><i style="background:${TYPE_COLOR[t]}"></i>${TYPE_LABEL[t]}</span>`).join("");
+  }
+
+  document.querySelectorAll("[data-filter]").forEach(b =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll("[data-filter]").forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      kgFilter = b.dataset.filter; kgSel = null;
+      $("kg-result").style.display = "none";
+      drawKG(null);
+    }));
+
+  // The ATT-18 walkthrough: the whole argument for the graph in one click.
+  $("btn-att18").addEventListener("click", () => {
+    kgFilter = "all";
+    document.querySelectorAll("[data-filter]").forEach(x =>
+      x.classList.toggle("on", x.dataset.filter === "all"));
+    const ticket = kgNodes.find(n => n.id === "ticket:T-501");
+    const good = kgNodes.find(n => n.id === "customer:C-1001");
+    const bad = kgNodes.find(n => n.id === "customer:C-1004");
+    if (!ticket || !good || !bad) return;
+    const nodes = new Set([ticket, good, bad]), links = new Set();
+    kgLinks.forEach(l => {
+      if ((l.s === ticket && l.o === good) || (l.s === good && l.o === ticket)) {
+        links.add(l); nodes.add(l.s); nodes.add(l.o);
+      }
+    });
+    drawKG({ nodes, links });
+    $("kg-result").style.display = "block";
+    $("kg-result").innerHTML =
+      `<strong>ATT-18, in one picture.</strong> Ticket <code>T-501</code> has a line to customer
+       <code>C-1001</code> — that is the <em>ABOUT</em> relationship, and it is what makes C-1001
+       the subject of the case. Now look at <code>C-1004</code>: highlighted, and joined to
+       nothing in this picture. The attack runs a flawless case for C-1001 — ticket read, identity
+       verified, record checked, $480 approved — and then pays C-1004.
+       <br><br>
+       Every per-call rule passes, because every per-call fact is correct: right agent, right
+       capability, amount under every limit, no hostile text anywhere.
+       <span class="bad">Against the rules as they stood before this work, it landed.</span>
+       The only thing wrong is a missing line in this graph, and a rule that checks one call at a
+       time cannot see a missing line.`;
+    $("kg-inspector").innerHTML =
+      `<div class="insp-title">Why a graph</div>
+       <div class="insp-sub">the point of section 2</div>
+       <div class="insp-v">A rule can check a number or a permission by itself. "Is this the
+       right person?" is a question about <em>two</em> things and how they are joined — so it
+       needs something that stores the joins.</div>`;
+  });
+
+  // ═══════════════════ boot ═══════════════════
+  (async function init() {
+    const g = await api("/api/graph");
+    if (!g) {
+      $("proc-inspector").innerHTML = `<div class="insp-hint">Backend unreachable — start it
+        with <code>make serve</code>.</div>`;
+      return;
+    }
+    procGraph = g.procedure;
+    drawProcedure();
+    buildKG((g.knowledge && g.knowledge.triples) || []);
+    drawLegend();
+    drawKG(null);
+  })();
+})();
+</script>
+</body>
+</html>

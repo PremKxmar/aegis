@@ -244,6 +244,11 @@ def api_compare_workflow(ticket_id: str) -> dict[str, Any]:
             "injection_flags": sess.injection_flags,
             "audit": g.ledger.stats(),
             "bank": _bank_snapshot(g.tools.state),
+            # Where the case actually got to. This is what lets the UI show
+            # "reached disbursement, never notified" instead of only listing
+            # which calls were refused.
+            "procedure": sess.procedure.to_dict(),
+            "subject": sess.subject_customer,
         }
     u, gv = out["ungoverned"], out["governed"]
     out["delta"] = {
@@ -366,6 +371,51 @@ def api_export() -> dict[str, Any]:
     return {"path": str(path), "bytes": path.stat().st_size}
 
 
+# ── graphs ──────────────────────────────────────────────────────────
+
+@app.get("/api/graph")
+def api_graph() -> dict[str, Any]:
+    """Both graphs: the procedure the bank follows, and the facts about it."""
+    g = gov()
+    return {
+        "procedure": g.procedure.to_dict(),
+        "knowledge": {"stats": g.kg.stats(),
+                      "triples": [t.to_dict() for t in g.kg.triples()]},
+    }
+
+
+@app.post("/api/policygen")
+def api_policygen(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Derive rules from the graphs and report what the current set misses.
+
+    `holdout` removes named rules first, which is how the demo shows the
+    generator re-deriving a rule this project originally found the hard way.
+    """
+    from .policygen import generate
+
+    body = payload or {}
+    report = generate(
+        holdout=[r for r in body.get("holdout", []) if r],
+        do_validate=bool(body.get("validate", False)),
+    )
+    out = report.to_dict()
+    hub.publish({"kind": "policygen", "probes": out["probes"],
+                 "gaps": out["gaps_found"], "coverage": out["coverage_pct"]})
+    return out
+
+
+@app.post("/api/bottleneck")
+def api_bottleneck(include_redteam: bool = False) -> dict[str, Any]:
+    """Replay the audit chain over the procedure graph: where does work stop?"""
+    from .bottleneck import run_corpus
+
+    report, _ = run_corpus(include_redteam=include_redteam)
+    out = report.to_dict()
+    hub.publish({"kind": "bottleneck", "completion_rate": out["completion_rate"],
+                 "findings": len(out["findings"])})
+    return out
+
+
 @app.get("/api/lint")
 def api_lint() -> dict[str, Any]:
     linter = PolicyLinter()
@@ -390,6 +440,20 @@ def index() -> Any:
     f = WEB / "index.html"
     if not f.exists():
         return JSONResponse({"error": "dashboard not built"}, status_code=404)
+    return FileResponse(f)
+
+
+@app.get("/graphs")
+def graphs_page() -> Any:
+    """The two graphs, drawn. A separate page on purpose.
+
+    The main console is dense because it is arguing a case with numbers. The
+    graphs are the part someone needs to *understand* rather than be convinced
+    by, and that wants room and a diagram rather than another fold-out panel.
+    """
+    f = WEB / "graphs.html"
+    if not f.exists():
+        return JSONResponse({"error": "graphs page not built"}, status_code=404)
     return FileResponse(f)
 
 

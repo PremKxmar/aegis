@@ -62,9 +62,10 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
 
 def cmd_redteam(args: argparse.Namespace) -> int:
+    from .redteam.attacks import ATTACKS
     from .redteam.runner import compare
 
-    print(c("\nRED-TEAM SUITE — 15 attacks, governed vs ungoverned", "b"))
+    print(c(f"\nRED-TEAM SUITE — {len(ATTACKS)} attacks, governed vs ungoverned", "b"))
     print(c("scoring: an attack 'lands' only if it caused observable harm\n", "dim"))
     result = compare()
 
@@ -153,6 +154,108 @@ def cmd_findings(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_graph(args: argparse.Namespace) -> int:
+    """Print both graphs: the procedure the bank follows and the facts about it."""
+    from .knowledge import build_graph
+    from .procedure import GRAPH
+
+    print(c("\nPROCEDURE GRAPH — (procedure, relation, procedure)", "b"))
+    print(c("arXiv:2609.09153 structure, used as enforcement rather than "
+            "guidance\n", "dim"))
+    for node in GRAPH.nodes.values():
+        tool = c(node.completed_by or "—", "cyan")
+        print(f"  {c(node.key, 'b'):<32} {node.owner:<10} {tool}")
+    print()
+    for e in GRAPH.edges:
+        print(f"  {e.src:<22} {c('--' + e.relation.value + '-->', 'dim')} "
+              f"{c(e.dst, 'b')}")
+        print(f"     {c('when: ' + e.condition, 'dim')}")
+        if args.verbose:
+            print(f"     {c('do  : ' + e.guidance, 'dim')}")
+            print(f"     {c('risk: ' + e.pitfalls, 'dim')}")
+
+    kg = build_graph()
+    st = kg.stats()
+    print(c(f"\nKNOWLEDGE GRAPH — {st['triples']} triples over "
+            f"{st['nodes']} nodes", "b"))
+    print(c("derived from live bank state, tool specs and the procedure "
+            "graph\n", "dim"))
+    for pred, n in sorted(st["predicates"].items(), key=lambda kv: -kv[1]):
+        print(f"  {pred:<18}{n:>4}")
+    if args.verbose:
+        print()
+        for t in kg.triples():
+            print(f"  {c(str(t), 'dim')}")
+    print()
+    return 0
+
+
+def cmd_policygen(args: argparse.Namespace) -> int:
+    """Derive rules from the graphs and report what the current set misses."""
+    from .policygen import generate
+
+    holdout = [r.strip() for r in (args.holdout or "").split(",") if r.strip()]
+    print(c("\nPOLICY GENERATION — rules derived from the graphs", "b"))
+    print(c("enumerate dangerous paths -> probe the live governor -> propose "
+            "-> validate\n", "dim"))
+    if holdout:
+        print(c(f"  holding out: {', '.join(holdout)}\n", "warn"))
+
+    rep = generate(policy_dir=Path(args.policies) if args.policies else None,
+                   holdout=holdout, do_validate=not args.no_validate)
+
+    print(f"  probes enumerated : {rep.probes}")
+    print(f"  already covered   : {c(str(len(rep.covered)), 'ok')} "
+          f"({rep.coverage_pct}%)")
+    print(f"  gaps found        : "
+          f"{c(str(len(rep.gaps)), 'bad' if rep.gaps else 'ok')}\n")
+
+    for g in rep.gaps:
+        print(f"  {c(g.probe.id, 'b')} [{c(g.probe.kind, 'cyan')}] "
+              f"{g.probe.description}")
+        print(f"     {c('graph says: ' + g.probe.evidence, 'dim')}")
+        print(f"     {c('governor says: ' + g.decision + ' — ' + g.reason[:70], 'dim')}")
+        print(f"     {c('proposes: ' + g.probe.proposal['name'], 'warn')} "
+              f"{c('· ' + g.probe.proposal['condition'], 'dim')}")
+
+    if rep.validation:
+        v = rep.validation
+        ok = v["accepted"]
+        print(f"\n  {c('VALIDATION GATE', 'b')} "
+              f"{c('ACCEPTED' if ok else 'REJECTED', 'ok' if ok else 'bad')}")
+        print(f"     closes every gap      : {v['closes_gaps']} "
+              f"({v['gaps_remaining']} left)")
+        print(f"     clean ticket completes: {v['workflow_completes']} "
+              f"({v['workflow_stages']}/7 stages, ${v['workflow_refunded']:.2f})")
+        print(f"     attack success rate   : {v['attack_success_rate']}%")
+        print(c("     a proposal that blocked legitimate work would fail here",
+                "dim"))
+
+    if rep.proposals and args.out:
+        from .policygen import render_policy
+        Path(args.out).write_text(render_policy(rep.proposals))
+        print(f"\n  wrote {args.out}")
+    elif rep.proposals:
+        print(f"\n{c('  proposed policy (use --out to write it):', 'dim')}\n")
+        from .policygen import render_policy
+        for line in render_policy(rep.proposals).splitlines():
+            print(f"    {c(line, 'dim')}")
+    print()
+    return 0
+
+
+def cmd_bottleneck(args: argparse.Namespace) -> int:
+    """Replay the audit chain over the procedure graph and find where work stops."""
+    from .bottleneck import format_report, run_corpus
+
+    rep, _ = run_corpus(include_redteam=args.include_redteam)
+    print(format_report(rep))
+    if args.json:
+        Path(args.json).write_text(json.dumps(rep.to_dict(), indent=2, default=str))
+        print(f"  wrote {args.json}\n")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
     from .server import app
@@ -185,6 +288,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("findings", help="print the toolkit bugs, re-verified live"
                    ).set_defaults(fn=cmd_findings)
+
+    gr = sub.add_parser("graph", help="print the procedure and knowledge graphs")
+    gr.add_argument("--verbose", action="store_true",
+                    help="include edge guidance/pitfalls and every triple")
+    gr.set_defaults(fn=cmd_graph)
+
+    pg = sub.add_parser("policygen",
+                        help="derive rules from the graphs and find gaps")
+    pg.add_argument("--policies", help="policy dir to audit (default: policies/)")
+    pg.add_argument("--holdout",
+                    help="comma-separated rule names to remove first, to check "
+                         "the generator derives them back")
+    pg.add_argument("--out", help="write the proposed policy to this path")
+    pg.add_argument("--no-validate", action="store_true",
+                    help="skip the validation gate (faster)")
+    pg.set_defaults(fn=cmd_policygen)
+
+    bt = sub.add_parser("bottleneck",
+                        help="where does governed work actually stop?")
+    bt.add_argument("--include-redteam", action="store_true",
+                    help="also replay the attack sessions")
+    bt.add_argument("--json", help="also write the full report to this path")
+    bt.set_defaults(fn=cmd_bottleneck)
 
     sv = sub.add_parser("serve", help="start the live console")
     sv.add_argument("--host", default="127.0.0.1")

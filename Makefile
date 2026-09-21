@@ -1,4 +1,5 @@
-.PHONY: install demo redteam bench lint findings test serve docker clean
+.PHONY: install demo redteam bench lint findings test serve docker clean \
+        graph policygen bottleneck
 
 VENV := .venv/bin
 
@@ -11,6 +12,19 @@ redteam:   ; @$(VENV)/python -W ignore -m aegis.cli redteam
 bench:     ; @$(VENV)/python -W ignore -m aegis.cli bench
 lint:      ; @$(VENV)/python -W ignore -m aegis.cli lint policies
 findings:  ; @$(VENV)/python -W ignore -m aegis.cli findings
+
+# Process governance: the two graphs, the rules they generate, and whether
+# governed work actually reaches a terminal state.
+graph:      ; @$(VENV)/python -W ignore -m aegis.cli graph
+policygen:  ; @$(VENV)/python -W ignore -m aegis.cli policygen
+bottleneck: ; @$(VENV)/python -W ignore -m aegis.cli bottleneck
+
+# The headline demo: strip the two relationship rules this project originally
+# found with a hand-written attack suite, and watch the generator derive them
+# back from the knowledge graph alone.
+policygen-holdout:
+	@$(VENV)/python -W ignore -m aegis.cli policygen \
+	  --holdout egress-recipient-must-be-authorised,egress-recipient-must-be-related,refund-subject-must-match-ticket
 test:      ; @$(VENV)/python -W ignore -m pytest tests -q
 serve:     ; @$(VENV)/python -W ignore -m aegis.cli serve
 
