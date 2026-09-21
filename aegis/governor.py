@@ -41,6 +41,8 @@ from .domain import (  # noqa: E402
     Stage, ToolCall, ToolSpec, Verdict,
 )
 from .identity import AgentRegistry  # noqa: E402
+from .knowledge import KnowledgeGraph, build_graph  # noqa: E402
+from .procedure import GRAPH as PROCEDURE, ProcedureState  # noqa: E402
 from .ratchet import DLPRatchet  # noqa: E402
 from .tools.banking import SPECS, BankingTools  # noqa: E402
 
@@ -65,6 +67,19 @@ class SessionState:
     # Addresses this session is permitted to mail: populated from the ticket
     # the work originated from. Empty means "no external mail authorised".
     allowed_recipients: set[str] = field(default_factory=set)
+    # Position in the refund procedure. Advances only on successful calls.
+    procedure: ProcedureState = field(default_factory=ProcedureState)
+
+    @property
+    def subject_customer(self) -> str:
+        """The customer this session has a legitimate claim on.
+
+        Taken from the ticket's own `customer_id` field, never from anything
+        parsed out of the ticket *body* -- the body is attacker-controlled, so
+        letting it nominate the subject would hand the attacker the anchor
+        every relationship check is measured against.
+        """
+        return str(self.procedure.facts.get("ticket_customer") or "")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +90,8 @@ class SessionState:
             "refund_total_usd": round(self.refund_total_usd, 2),
             "refund_count": self.refund_count,
             "allowed_recipients": sorted(self.allowed_recipients),
+            "procedure": self.procedure.to_dict(),
+            "subject_customer": self.subject_customer,
         }
 
 
@@ -103,6 +120,13 @@ class Governor:
         )
         self.sessions: dict[str, SessionState] = {}
         self._on_event = on_event
+
+        # The two graphs. `procedure` is a shared, immutable structure -- all
+        # mutable position lives per-session in SessionState.procedure. The
+        # knowledge graph is derived from live state so it cannot drift from
+        # the bank it describes.
+        self.procedure = PROCEDURE
+        self.kg: KnowledgeGraph = build_graph(self.tools.state, self.registry)
 
         self.policy = PolicyEngine(conflict_strategy="deny_overrides")
         self.loaded_policies: list[str] = []
@@ -283,6 +307,15 @@ class Governor:
                     + (float(call.args.get("amount", 0) or 0)
                        if call.tool == "issue_refund" else 0.0), 2),
             },
+            # Where this session has got to in the refund procedure, and
+            # whether this call is a legal move from there. The graph computes
+            # the facts; policies/50-procedure.yaml decides what they mean.
+            "procedure": self.procedure.context(sess.procedure, call.tool,
+                                                call.args),
+            # Relationship answers from the domain graph: is this recipient
+            # connected to the customer this session is actually working on?
+            # See policies/60-knowledge.yaml.
+            "kg": self.kg.context(call.tool, call.args, sess.subject_customer),
             "risk": {"injection": injection_risk,
                      "injection_detected": injection_risk != "none"},
             # Cedar/Rego adapters read `action.type`; keep it populated so the
@@ -312,6 +345,15 @@ class Governor:
 
         if verdict.blocked:
             self.registry.record(agent_key, call.tool, success=False)
+            # A refused step that was *also* out of order is worth recording
+            # separately: it is the raw material for the bottleneck report,
+            # which needs to distinguish "this process stalled" from "an agent
+            # tried something it was never allowed to do".
+            sess = self.session(call.session_id)
+            pc = self.procedure.context(sess.procedure, call.tool, call.args)
+            if pc["out_of_order"] or pc["replay"]:
+                self.procedure.record_violation(
+                    sess.procedure, pc["stage"], call.tool, pc["blocked_reason"])
             raise GovernanceDenied(verdict)
 
         sess = self.session(call.session_id)
@@ -336,6 +378,17 @@ class Governor:
         if ev:
             self._emit("ratchet", {"event": ev.to_dict(),
                                    "session": call.session_id})
+
+        # Advance the procedure on evidence, not on intent. A denied step
+        # leaves the position untouched, which is exactly what lets the
+        # bottleneck report see where real sessions stop.
+        stage = self.procedure.observe(sess.procedure, call.tool, call.args, result)
+        if stage:
+            self._emit("procedure", {
+                "session": call.session_id, "stage": stage, "tool": call.tool,
+                "next_expected": self.procedure.next_expected(sess.procedure),
+                "state": sess.procedure.to_dict(),
+            })
 
         self.registry.record(agent_key, call.tool, success=True)
         return result
@@ -400,7 +453,11 @@ class Governor:
                 "refunds": self.tools.state.refunds,
                 "total_refunded": self.tools.state.total_refunded(),
                 "emails_sent": self.tools.state.sent_email,
+                "decisions": self.tools.state.decisions,
+                "integrity_checks": self.tools.state.integrity_checks,
             },
+            "procedure": self.procedure.to_dict(),
+            "knowledge": self.kg.stats(),
         }
 
     def reset(self) -> None:
@@ -410,3 +467,6 @@ class Governor:
         self.killswitch.reset()
         self.registry.reset_trust()
         self.sessions.clear()
+        # `tools.reset()` swaps in a fresh BankState, so a graph derived from
+        # the old one would now describe records that no longer exist.
+        self.kg = build_graph(self.tools.state, self.registry)

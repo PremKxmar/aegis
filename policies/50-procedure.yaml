@@ -1,0 +1,98 @@
+# Procedural ordering: govern the *process*, not just the actions.
+#
+# Every other policy file in this directory answers "may this agent call this
+# tool?" Not one of them answers "is this the right point in the process to be
+# doing it?" Five red-team attacks (ATT-16..ATT-20) exist to prove the gap was
+# real: each of them passed all eight controls and every rule in 00-40 while
+# skipping a mandatory step.
+#
+# The facts these rules read come from `aegis/procedure.py`, which tracks each
+# session's position on a procedural graph and publishes it as `procedure.*`.
+# The graph structure follows arXiv:2609.09153 (procedure, relation, procedure)
+# with one deliberate inversion: in the paper the graph *advises* an agent to
+# improve its success rate, here it *denies*. The edges below are that paper's
+# edge conditions, compiled into a compliance boundary.
+#
+# Ordering is a hard constraint, so these sit above the per-tool grants in
+# 10-40 but below the absolute rules in 00-baseline: an injected session is
+# stopped before anyone asks whether its paperwork was in order.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-procedure
+description: Stage ordering and precondition gates for the refund procedure.
+agents: ["*"]
+default_action: deny
+
+rules:
+  # ── the money gates ───────────────────────────────────────────────
+  # FINDING (ATT-17): money moved with no eligibility decision anywhere in
+  # the session. Every amount-based rule in 30-payments.yaml passed, because
+  # the amount was fine. Nobody had decided the customer was owed it.
+  - name: refund-requires-eligibility-decision
+    description: No disbursement without a recorded decision behind it.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and procedure.eligibility_incomplete"
+    action: deny
+    priority: 860
+
+  - name: refund-requires-positive-decision
+    description: A recorded refusal is not authorisation to pay anyway.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and procedure.refund_refused"
+    action: deny
+    priority: 855
+
+  # FINDING (ATT-19): the same approved refund paid twice. Per-call limits see
+  # two legitimate payments; the decision they both cite authorised one.
+  - name: refund-within-approved-total
+    description: Cumulative disbursement may not exceed the approved figure.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and procedure.amount_exceeds_approved"
+    action: deny
+    priority: 850
+
+  # ── the upstream gates ────────────────────────────────────────────
+  - name: eligibility-requires-integrity-check
+    description: Decide on verified data or do not decide.
+    stage: pre_tool
+    condition: "tool.name == 'decide_refund_eligibility' and procedure.integrity_incomplete"
+    action: deny
+    priority: 845
+
+  - name: integrity-check-requires-kyc
+    stage: pre_tool
+    condition: "tool.name == 'verify_account_integrity' and procedure.kyc_incomplete"
+    action: deny
+    priority: 840
+
+  # FINDING (ATT-16): PII read before anyone confirmed whose it was. The
+  # capability layer asks whether the agent may read PII at all; it cannot ask
+  # whether this is the right moment. KYC first, then the file.
+  - name: pii-requires-completed-kyc
+    description: No customer data before the customer is verified.
+    stage: pre_tool
+    condition: "tool.reads in ['pii', 'pci'] and procedure.kyc_incomplete"
+    action: deny
+    priority: 835
+
+  # FINDING (ATT-20): ticket closed without the customer ever being told.
+  # Closing is the cheapest way to make an unresolved case disappear from
+  # every queue metric, which is exactly why it needs a precondition.
+  - name: closure-requires-notification
+    description: A case is not closed until the customer has been told.
+    stage: pre_tool
+    condition: "tool.name == 'close_ticket' and procedure.notification_incomplete"
+    action: deny
+    priority: 830
+
+  # ── generic backstop ──────────────────────────────────────────────
+  # The rules above name specific transitions so the audit trail says something
+  # useful. This one catches any *future* stage added to the graph without a
+  # matching rule here: if a mutating tool is not a legal move from the
+  # session's current position, it does not run. New stage, still governed.
+  - name: no-out-of-order-mutation
+    description: A mutating step must be a legal transition from here.
+    stage: pre_tool
+    condition: "procedure.out_of_order and tool.mutating"
+    action: deny
+    priority: 820

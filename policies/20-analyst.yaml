@@ -19,6 +19,22 @@ rules:
     action: allow
     priority: 100
 
+  # The two procedural steps. Both belong to the analyst by design: the agent
+  # that verifies the record and the agent that decides eligibility must not be
+  # the agent that moves the money (see refund-restricted-to-payments), which
+  # is separation of duties expressed as two rules in two files.
+  - name: analyst-may-verify-integrity
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'verify_account_integrity'"
+    action: allow
+    priority: 100
+
+  - name: analyst-may-decide-eligibility
+    stage: pre_tool
+    condition: "agent.key == 'analyst' and tool.name == 'decide_refund_eligibility'"
+    action: allow
+    priority: 100
+
   # Deliberately NOT granted read_customer_pii: the analyst identity has no
   # read:pii capability, so the capability layer denies it before policy runs.
   # This rule documents the intent for auditors reading the policy alone.

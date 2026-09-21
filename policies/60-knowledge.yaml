@@ -1,0 +1,56 @@
+# Relationship constraints derived from the domain knowledge graph.
+#
+# Why a graph and not more rules
+# ------------------------------
+# `40-comms.yaml` ends with `egress-recipient-must-be-authorised`, which reads
+# a pre-computed boolean off a set of addresses the governor maintains by hand
+# in `SessionState.allowed_recipients`. That set is a one-hop graph traversal
+# written out longhand: "customer --HAS_EMAIL--> address". It works, and it
+# only works for the one relationship somebody remembered to encode.
+#
+# The rules below ask the graph instead (`aegis/knowledge.py`), so they cover
+# relationships nobody enumerated in advance:
+#
+#   ATT-18  money moved to an account with no connection to the ticket being
+#           worked. Amount legitimate, agent legitimate, capability held, no
+#           injected text anywhere. Every rule in 00-50 permits it. It is a
+#           question about a *relationship*, and only a graph can answer it.
+#
+# These deliberately overlap `40-comms.yaml`. That is defence in depth, not
+# duplication: one is a maintained list, the other is derived from live state,
+# and `aegis policygen` can rediscover these rules from the graph alone --
+# delete this file, run the generator, and it proposes it back.
+apiVersion: governance.toolkit/v1
+version: "1.0"
+name: aegis-knowledge
+description: Graph-derived relationship constraints on subjects and recipients.
+agents: ["*"]
+default_action: deny
+
+rules:
+  # FINDING (ATT-18): the session's subject is the customer the *ticket* names.
+  # Anything else is a different person's money, however plausible the amount.
+  - name: refund-subject-must-match-ticket
+    description: Pay the customer the case is about, nobody else.
+    stage: pre_tool
+    condition: "tool.name == 'issue_refund' and kg.subject_mismatch"
+    action: deny
+    priority: 790
+
+  - name: pii-subject-must-match-ticket
+    description: Read the file of the customer the case is about, nobody else.
+    stage: pre_tool
+    condition: "tool.reads in ['pii', 'pci'] and kg.subject_mismatch"
+    action: deny
+    priority: 785
+
+  # The graph-derived form of ATT-09/ATT-13's fix. `tool.recipient_blocked`
+  # consults a maintained set; this consults the graph. An address belonging to
+  # *some* customer but not *this* one fails here and passes there, which is
+  # the cross-customer leak the maintained set was never shaped to catch.
+  - name: egress-recipient-must-be-related
+    description: Mail only addresses the graph links to this case's customer.
+    stage: pre_tool
+    condition: "tool.egress and kg.recipient_unrelated"
+    action: deny
+    priority: 780

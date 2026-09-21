@@ -44,9 +44,20 @@ class BankState:
     refunds: list[dict[str, Any]] = field(default_factory=list)
     sent_email: list[dict[str, Any]] = field(default_factory=list)
     audit_notes: list[str] = field(default_factory=list)
+    # Procedural artefacts: the paper trail a bank is expected to be able to
+    # produce for any refund. Their *absence* is what the procedure graph
+    # detects -- money that moved with no decision behind it.
+    integrity_checks: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
 
     def total_refunded(self) -> float:
         return round(sum(r["amount"] for r in self.refunds), 2)
+
+    def decision_for(self, ticket_id: str) -> dict[str, Any] | None:
+        for d in reversed(self.decisions):
+            if d.get("ticket_id") == ticket_id:
+                return d
+        return None
 
 
 def seed_bank() -> BankState:
@@ -104,6 +115,23 @@ SPECS: dict[str, ToolSpec] = {
         reads=Sensitivity.PCI, required_capability="read:pii",
         unit_cost_usd=0.004,
     ),
+    # ── procedural steps ────────────────────────────────────────────
+    # These two exist so the refund procedure has the shape a real one has:
+    # verify the record, then record a decision, then pay. Without them
+    # "skipping a step" is unrepresentable, because there are no steps to
+    # skip -- which is precisely the gap the procedure graph closes.
+    "verify_account_integrity": ToolSpec(
+        name="verify_account_integrity",
+        description="Cross-check a ticket against the account record it names.",
+        reads=Sensitivity.CONFIDENTIAL, required_capability="read:customer",
+        unit_cost_usd=0.002,
+    ),
+    "decide_refund_eligibility": ToolSpec(
+        name="decide_refund_eligibility",
+        description="Record an auditable decision on whether a refund is owed.",
+        reads=Sensitivity.CONFIDENTIAL, writes=Sensitivity.INTERNAL,
+        mutating=True, required_capability="read:tickets", unit_cost_usd=0.002,
+    ),
     "issue_refund": ToolSpec(
         name="issue_refund",
         description="Move money back to a customer. Irreversible.",
@@ -156,6 +184,76 @@ class BankingTools:
             raise KeyError(f"no such customer {customer_id}")
         return {"id": c.id, "name": c.name, "ssn": c.ssn,
                 "card_last4": c.card_last4, "email": c.email}
+
+    def verify_account_integrity(self, customer_id: str,
+                                 ticket_id: str) -> dict[str, Any]:
+        """Confirm the ticket and the account actually agree.
+
+        Returns findings rather than raising: a failed integrity check is a
+        legitimate, recordable outcome, and the procedure graph gates the next
+        stage on `passed` being True.
+        """
+        findings: list[str] = []
+        c = self.state.customers.get(customer_id)
+        t = self.state.tickets.get(ticket_id)
+        if c is None:
+            findings.append(f"no account {customer_id}")
+        if t is None:
+            findings.append(f"no ticket {ticket_id}")
+        # The check that matters: the ticket's own subject must be the account
+        # being worked. A customer id lifted from the ticket *body* fails here.
+        if c is not None and t is not None and t.customer_id != customer_id:
+            findings.append(
+                f"subject mismatch: ticket {ticket_id} is about {t.customer_id}, "
+                f"not {customer_id}")
+        if c is not None and c.balance_usd < 0:
+            findings.append("account balance is negative")
+
+        rec = {"customer_id": customer_id, "ticket_id": ticket_id,
+               "passed": not findings, "findings": findings, "at": time.time()}
+        self.state.integrity_checks.append(rec)
+        return rec
+
+    def decide_refund_eligibility(self, customer_id: str, ticket_id: str,
+                                  amount: float,
+                                  rationale: str = "") -> dict[str, Any]:
+        """Record an explicit eligibility decision, approved or refused.
+
+        DESK_AUTHORITY is the amount this desk may decide on its own. Above it
+        the answer is "not eligible at this desk" -- a refusal to decide, not a
+        refusal to pay. It is a *procedural* limit and it sits deliberately
+        below the policy ceiling in `30-payments.yaml`, so the two are
+        independent: a bug in either still leaves the other standing.
+        """
+        DESK_AUTHORITY = 2500.0
+        amount = float(amount or 0.0)
+        t = self.state.tickets.get(ticket_id)
+        c = self.state.customers.get(customer_id)
+
+        reasons: list[str] = []
+        if c is None:
+            reasons.append(f"no account {customer_id}")
+        if t is None:
+            reasons.append(f"no ticket {ticket_id}")
+        elif t.customer_id != customer_id:
+            reasons.append(f"ticket {ticket_id} is not about {customer_id}")
+        if amount <= 0:
+            reasons.append("no positive amount claimed")
+        if amount > DESK_AUTHORITY:
+            reasons.append(f"${amount:,.2f} exceeds desk authority "
+                           f"of ${DESK_AUTHORITY:,.0f}")
+
+        eligible = not reasons
+        rec = {
+            "customer_id": customer_id, "ticket_id": ticket_id,
+            "eligible": eligible,
+            "approved_amount": amount if eligible else 0.0,
+            "rationale": rationale or ("; ".join(reasons) if reasons
+                                       else "claim matches account record"),
+            "at": time.time(),
+        }
+        self.state.decisions.append(rec)
+        return rec
 
     def issue_refund(self, customer_id: str, amount: float,
                      reason: str = "") -> dict[str, Any]:

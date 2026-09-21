@@ -68,6 +68,25 @@ KNOWN_PATHS: set[str] = {
     "session.refund_count", "session.refund_total_after",
     "risk.injection", "risk.injection_detected",
     "action.type", "action.mutating", "action.egress",
+    # Procedural graph position (aegis/procedure.py). Every negative is
+    # published pre-computed because the condition language has no `not`.
+    "procedure.stage", "procedure.current", "procedure.next_expected",
+    "procedure.in_order", "procedure.out_of_order", "procedure.replay",
+    "procedure.blocked_reason", "procedure.steps_done",
+    "procedure.intake_complete", "procedure.intake_incomplete",
+    "procedure.kyc_complete", "procedure.kyc_incomplete",
+    "procedure.integrity_complete", "procedure.integrity_incomplete",
+    "procedure.eligibility_complete", "procedure.eligibility_incomplete",
+    "procedure.disbursement_complete",
+    "procedure.notification_complete", "procedure.notification_incomplete",
+    "procedure.complete", "procedure.refund_approved", "procedure.refund_refused",
+    "procedure.amount_exceeds_approved", "procedure.disbursed_total",
+    "procedure.approved_amount",
+    # Knowledge-graph relationship answers (aegis/knowledge.py).
+    "kg.subject", "kg.subject_known", "kg.subject_mismatch", "kg.subject_matches",
+    "kg.recipient", "kg.recipient_owner", "kg.recipient_known",
+    "kg.recipient_unknown", "kg.recipient_unrelated", "kg.recipient_related",
+    "kg.hops_to_recipient", "kg.reads_restricted",
 }
 # `tool.args.*` is open-ended by design (per-tool arguments).
 OPEN_PREFIXES = ("tool.args.",)

@@ -127,14 +127,49 @@ class BackOfficeWorkflow:
         if ok:
             res.notes.append(f"analyst retrieved account for {customer.get('name')}")
 
-        # 3. ANALYST attempts PII. Should always fail: no read:pii capability.
-        #    Left in deliberately -- it demonstrates the capability layer on a
-        #    completely benign ticket, not just under attack.
-        self._call(res, "analyst", "read_customer_pii",
-                   {"customer_id": customer_id}, untrusted=body)
+        # 3. REMOVED: the analyst used to attempt read_customer_pii here, as a
+        #    live demonstration of the capability layer denying a call on an
+        #    entirely benign ticket.
+        #
+        #    FINDING (aegis bottleneck): across a corpus of tickets that probe
+        #    was quarantining the agent. Every denial is a trust penalty, so a
+        #    workflow that deliberately calls a tool it has no capability for
+        #    loses ~0.12 of trust per ticket and eventually trips
+        #    `low-trust-loses-write` -- after which legitimate cases stop
+        #    completing for a reason that has nothing to do with those cases.
+        #    Invisible in a single-ticket demo; obvious the moment completion
+        #    is measured across sessions. The capability layer is still
+        #    exercised by ATT-03 and ATT-04, which is where probing belongs.
 
-        # 4. PAYMENTS issues the refund the ticket asks for.
-        amount = self._extract_amount(body)
+        # 4. ANALYST verifies the record hangs together before anyone forms an
+        #    opinion about money. This is the stage that catches a ticket body
+        #    naming an account the ticket is not actually about.
+        self._call(res, "analyst", "verify_account_integrity",
+                   {"customer_id": customer_id, "ticket_id": ticket_id},
+                   untrusted=body)
+
+        # 5. ANALYST records an explicit eligibility decision. The amount is
+        #    read from the ticket body, which is untrusted -- so the decision
+        #    is the control that turns an attacker's claimed figure into an
+        #    authorised one, and it is the thing `issue_refund` is gated on.
+        #
+        #    FINDING (aegis bottleneck): this used to run only when the body
+        #    contained a figure. A ticket with no refund claim -- T-502, "my
+        #    card keeps getting declined" -- therefore recorded no decision,
+        #    and `notification` converges from `eligibility_decision`, so the
+        #    case could never reach the customer or be closed. A perfectly
+        #    legitimate ticket had no path to a terminal state. Every case now
+        #    gets a decision, including "nothing is owed", which is also how a
+        #    real back office works.
+        amount = self._extract_amount(body) or 0.0
+        self._call(res, "analyst", "decide_refund_eligibility",
+                   {"customer_id": customer_id, "ticket_id": ticket_id,
+                    "amount": amount,
+                    "rationale": ("claim reviewed against record" if amount
+                                  else "no refund claimed; informational reply")},
+                   untrusted=body)
+
+        # 6. PAYMENTS issues the refund the decision authorised.
         if amount:
             ok, out = self._call(res, "payments", "issue_refund",
                                  {"customer_id": customer_id, "amount": amount,
@@ -148,7 +183,7 @@ class BackOfficeWorkflow:
         else:
             res.notes.append("no refund amount found in ticket")
 
-        # 5. COMMS replies to the customer.
+        # 7. COMMS replies to the customer.
         ok, _ = self._call(res, "comms", "send_email",
                            {"to": customer.get("email", "unknown@example.test")
                             if isinstance(customer, dict) else "unknown@example.test",
@@ -159,7 +194,7 @@ class BackOfficeWorkflow:
         if ok:
             res.emails_sent += 1
 
-        # 6. ANALYST closes the ticket.
+        # 8. ANALYST closes the ticket.
         #    FINDING: this was originally the triage agent. Ring 3 forbids all
         #    mutation, so `close_ticket` was denied on every run -- including
         #    entirely benign ones. Rather than weaken the ring rule we moved

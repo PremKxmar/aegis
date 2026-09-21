@@ -30,6 +30,28 @@ def call(gov, agent, tool, args, session="T", untrusted=""):
                  session_id=session, untrusted_text=untrusted), agent)
 
 
+def approve_procedure(gov, session, *, customer="C-1001", ticket="T-501",
+                      amount=1_000_000.0):
+    """Fast-forward a session to the point where disbursement is procedurally legal.
+
+    Written directly into `ProcedureState` rather than by running the stages,
+    so that a test about the ratchet, the budget or the approval queue is not
+    silently also a test of the procedure graph. The graph's own traversal
+    rules are covered in `test_procedure.py`.
+
+    The generous default approval keeps the *amount* thresholds in
+    30-payments.yaml as the binding constraint, which is what these tests are
+    actually about.
+    """
+    st = gov.session(session).procedure
+    st.completed.update({"intake", "kyc_verify", "integrity_check",
+                         "eligibility_decision"})
+    st.facts.update({"ticket_id": ticket, "ticket_customer": customer,
+                     "kyc_customer": customer, "integrity_passed": True,
+                     "eligible": True, "approved_amount": amount})
+    return st
+
+
 # ── capability layer ────────────────────────────────────────────────
 
 def test_agent_cannot_use_tool_it_lacks_capability_for(gov):
@@ -55,12 +77,14 @@ def test_capabilities_narrow_down_the_chain():
 # ── policy layer ────────────────────────────────────────────────────
 
 def test_refund_under_threshold_is_allowed(gov):
+    approve_procedure(gov, "T")
     out = call(gov, "payments", "issue_refund",
                {"customer_id": "C-1001", "amount": 100.0, "reason": "t"})
     assert out["amount"] == 100.0
 
 
 def test_refund_over_threshold_requires_approval(gov):
+    approve_procedure(gov, "T")
     with pytest.raises(ApprovalRequired) as e:
         call(gov, "payments", "issue_refund",
              {"customer_id": "C-1001", "amount": 900.0, "reason": "t"})
@@ -70,6 +94,7 @@ def test_refund_over_threshold_requires_approval(gov):
 
 def test_refund_above_hard_ceiling_is_denied_not_gated(gov):
     """No human can approve past the ceiling; it must be a flat deny."""
+    approve_procedure(gov, "T")
     with pytest.raises(GovernanceDenied) as e:
         call(gov, "payments", "issue_refund",
              {"customer_id": "C-1001", "amount": 9999.0, "reason": "t"})
@@ -106,6 +131,10 @@ def test_ratchet_only_moves_up():
 
 
 def test_ratchet_blocks_egress_after_pii_read(gov):
+    approve_procedure(gov, "X", customer="C-1003")
+    # A real lookup, so the recipient allow-list is populated and the *only*
+    # thing left to refuse the mail is the ratchet.
+    call(gov, "analyst", "lookup_customer", {"customer_id": "C-1003"}, session="X")
     call(gov, "payments", "read_customer_pii", {"customer_id": "C-1003"}, session="X")
     assert gov.session("X").ratchet.mark is Sensitivity.PCI
     with pytest.raises(GovernanceDenied):
@@ -124,6 +153,7 @@ def test_ratchet_holds_independently_of_policy():
     for name, pol in list(g.policy._policies.items()) if hasattr(g.policy, "_policies") else []:
         pol.rules = [r for r in pol.rules if r.name != "no-egress-from-tainted-session"]
 
+    approve_procedure(g, "Y", customer="C-1003")
     sess = g.session("Y")
     sess.ratchet.observe(SPECS["read_customer_pii"])
     sess.allowed_recipients.add("aisha.k@example.test")
@@ -134,18 +164,24 @@ def test_ratchet_holds_independently_of_policy():
 
 
 def test_egress_to_unauthorised_recipient_is_denied(gov):
+    approve_procedure(gov, "Z")
     call(gov, "analyst", "lookup_customer", {"customer_id": "C-1001"}, session="Z")
     with pytest.raises(GovernanceDenied) as e:
         call(gov, "comms", "send_email",
              {"to": "attacker@evil.test", "subject": "s", "body": "b"}, session="Z")
-    assert "recipient" in e.value.verdict.reason.lower() or \
-           e.value.verdict.matched_rule == "egress-recipient-must-be-authorised"
+    assert e.value.verdict.matched_rule in (
+        "egress-recipient-must-be-authorised",   # maintained allow-list
+        "egress-recipient-must-be-related",      # graph-derived equivalent
+    ), e.value.verdict.matched_rule
 
 
 # ── cumulative controls ─────────────────────────────────────────────
 
 def test_structuring_is_caught_by_cumulative_total(gov):
     """Sub-threshold refunds must not sum past the session cap."""
+    # Approved generously on purpose: this test is about the *session* caps in
+    # 30-payments.yaml, not about the per-case approved total in 50-procedure.
+    approve_procedure(gov, "STR", customer="C-1004")
     moved = 0.0
     for _ in range(12):
         try:
@@ -196,6 +232,7 @@ def test_killswitch_global_covers_every_agent():
 # ── approvals ───────────────────────────────────────────────────────
 
 def test_pending_approval_does_not_execute(gov):
+    approve_procedure(gov, "T")
     before = len(gov.tools.state.refunds)
     with pytest.raises(ApprovalRequired):
         call(gov, "payments", "issue_refund",
@@ -204,6 +241,7 @@ def test_pending_approval_does_not_execute(gov):
 
 
 def test_approval_then_replay_executes(gov):
+    approve_procedure(gov, "AP")
     with pytest.raises(ApprovalRequired):
         call(gov, "payments", "issue_refund",
              {"customer_id": "C-1001", "amount": 900.0, "reason": "t"}, session="AP")
@@ -221,6 +259,7 @@ def test_unauthorised_approver_is_rejected():
 
 
 def test_approval_cannot_override_killswitch(gov):
+    approve_procedure(gov, "KA")
     with pytest.raises(ApprovalRequired):
         call(gov, "payments", "issue_refund",
              {"customer_id": "C-1001", "amount": 900.0, "reason": "t"}, session="KA")
