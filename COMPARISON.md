@@ -47,7 +47,7 @@ stop short of no-egress on-prem enforcement. For a bank, a defence contractor or
 anyone with data-residency constraints, this is frequently the whole decision.
 
 **Fast enough to be invisible.** Measured in this project: **65.6 µs mean,
-92.8 µs p99** for a policy decision; **77 µs total** added per governed tool
+107 µs p99** for a policy decision; **~51 µs total** added per governed tool
 call. Against a realistic 200 ms tool that is 0.04%. There is no performance
 argument against turning it on.
 
@@ -150,7 +150,7 @@ Everything asserted about AGT here is reproducible:
 
 ```bash
 make findings   # the four bugs, re-verified live against the installed package
-make test       # 38 tests, 7 of which are regressions against the toolkit itself
+make test       # 76 tests, 7 of which are regressions against the toolkit itself
 make bench      # the latency numbers
 make lint-compare   # agt lint-policy vs aegis-policylint on a 5-defect file
 ```
